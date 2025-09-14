@@ -1,0 +1,11 @@
+dotenv
+fastapi[standard]
+langchain
+langchain-openai
+langgraph
+langsmith
+openai
+openai-agents
+pydantic
+uvicorn
+requests

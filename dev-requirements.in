@@ -1,0 +1,18 @@
+-r requirements.in
+# eventually move to prod
+# 
+# productivity
+jupyter
+# debugging
+pdbpp
+rch
+# linters and formatters, type checking
+ruff
+black
+isort
+mypy
+pre-commit
+# testing
+pytest
+pytest-mock
+pytest-recording

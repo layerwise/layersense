@@ -1,0 +1,93 @@
+[project]
+name = "LayerSense"
+version = "0.1.0"
+description = "LayerSense - An Agent-powered backend for AI-assisted animations using Manim and Excalidraw."
+authors = [{ name = "Mathew S Roewe", email = "42layerwise@gmail.com" }]
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+keywords = ["python", "openai-agents", "manim"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# Core runtime dependencies
+dependencies = ["layersense==0.1.0", "openai-agents>=0.3.0", "fastapi"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov", "ruff", "mypy", "black"]
+
+docs = ["mkdocs", "mkdocs-material"]
+
+[dependency-groups]
+dev = ["pytest>=7.0", "pytest-cov", "ruff", "mypy", "black"]
+
+[project.urls]
+# homepage = "https://github.com/yourname/my_project"
+# repository = "https://github.com/yourname/my_project"
+# issues = "https://github.com/yourname/my_project/issues"
+
+[build-system]
+# ---- Build System ----
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+layersense = { workspace = true }
+
+[tool.uv.workspace]
+members = ["layersense"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/my_project"]
+
+# ---- Tooling Configurations ----
+
+[tool.ruff]
+line-length = 99
+target-version = "py312"
+# lint.extend-select = ["B", "C4", "I", "UP", "W"]
+
+lint.select = [
+    "E",  # pycodestyle error
+    "W",  # pycodestyle warning
+    "F",  # pyflakes
+    "UP", # pyupgrade
+    "D",  # pydocstyle
+    "I",  # isort
+]
+lint.ignore = [
+    "E501", # ignore long-line warnings (handled by Black)
+    "F401", # ignore unused imports (handled only during pre-commit)
+    "D100", # missing docstring in pubuc module
+    "D101", # missing docstring in publuc class
+    "D102", # missing docstring in publuc method
+    "D103", # missing docstring in publuc function
+    "D104", # missing docstring in publuc package
+    "D105", # missing docstring in magic method
+    "D107", # missing docstring in `__ini__`
+
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.black]
+line-length = 99
+target-version = ["py312"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+
+[tool.pytest.ini_options]

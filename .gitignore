@@ -1,3 +1,16 @@
+# codeium
+.codeiumignore
+
+# environment variables and secrets
+.env.local
+
+# venv
+.venv_layersense
+
+# VSCode
+.vscode
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
