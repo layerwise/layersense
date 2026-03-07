@@ -1,3 +1,6 @@
+# ignore worktrees
+.worktrees
+
 # codeium
 .codeiumignore
 
