@@ -4,10 +4,9 @@ from uuid import uuid4
 from agents import Runner
 from fastapi import APIRouter
 from fastapi.params import Body
-
-from layersense.agents.agent import ManimAgentContext, manim_generator
-from layersense.models.base import AnimationInputs, ConversationCreatedResponse
-from layersense.models.scene import ExcalidrawScene
+from layersense_agent.agents.agent import ManimAgentContext, manim_generator
+from layersense_agent.models.base import AnimationInputs, ConversationCreatedResponse
+from layersense_agent.models.scene import ExcalidrawScene
 
 router = APIRouter()
 

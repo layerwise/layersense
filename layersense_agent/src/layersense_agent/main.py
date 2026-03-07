@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from layersense.agents.agent import ManimAgentContext, manim_generator
-from layersense.api.v1 import api_router as v1_router
+from layersense_agent.agents.agent import ManimAgentContext, manim_generator
+from layersense_agent.api.v1 import api_router as v1_router
 
 app = FastAPI(name="LayerSense")
 

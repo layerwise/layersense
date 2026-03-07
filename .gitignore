@@ -2,7 +2,7 @@
 .codeiumignore
 
 # environment variables and secrets
-.env.local
+.env
 
 # venv
 .venv_layersense
