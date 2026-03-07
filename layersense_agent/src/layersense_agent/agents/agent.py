@@ -119,6 +119,11 @@ class ExcalidrawAnimation(Scene):
         # 4. Animate the freeform drawing.
         self.play(Create(freeform))
 ```
+
+## Critical Output Rules
+1. The scene class MUST be named `GeneratedScene`. No other name is acceptable.
+2. Output ONLY the raw Python code. Do NOT wrap it in markdown code fences (no ```python).
+3. The code must be a complete, runnable Manim scene file starting with `from manim import *`.
 """
 
 
@@ -133,6 +138,16 @@ manim_generator = Agent(
     instructions=instructions,
     output_type=str,
 )
+
+
+def strip_code_fences(code: str) -> str:
+    """Remove markdown code fences if the model wraps output anyway."""
+    code = code.strip()
+    if code.startswith("```"):
+        lines = code.splitlines()
+        # drop first line (``` or ```python) and last line (```)
+        code = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    return code.strip()
 
 
 if __name__ == "__main__":
