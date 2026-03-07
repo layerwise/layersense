@@ -1,42 +1,39 @@
 import json
+import os
+from pathlib import Path
 from uuid import uuid4
 
 from agents import Runner
 from fastapi import APIRouter
-from fastapi.params import Body
-from layersense_agent.agents.agent import ManimAgentContext, manim_generator
-from layersense_agent.models.base import AnimationInputs, ConversationCreatedResponse
-from layersense_agent.models.scene import ExcalidrawScene
+
+from layersense_agent.agents.agent import ManimAgentContext, manim_generator, strip_code_fences
+from layersense_agent.models.base import AnimationCreatedResponse, AnimationInputs
 
 router = APIRouter()
 
+SCENES_DIR = Path(os.getenv("SCENES_DIR", "./layersense_scenes"))
+EXAMPLE_JSON_PATH = Path("assets/example_json/example_circle_rectangle_freeform.json")
 
-@router.post("/animation", response_model=ConversationCreatedResponse)
-async def create_animation(inputs: AnimationInputs):
-    """Create an animation.
 
-    This endpoint creates an animation based on the given inputs,
-    including the prompt and the json data.
-
-    Args:
-        inputs (AnimationInputs): The inputs for the animation including the prompt and the json data.
-
-    Returns:
-        A JSON object with a single key, `"conversation_id"`, which is a
-        unique identifier for the conversation. This id can be used to
-        retrieve the animation once it is complete.
-    """
+@router.post("/animation", response_model=AnimationCreatedResponse)
+async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
+    """Translate an Excalidraw canvas + prompt into a Manim scene file."""
     conversation_id = str(uuid4())
 
-    user_prompt = inputs.prompt + "\n" + inputs.json_data
-
-    with open("assets/example_json/example_circle_rectangle_freeform.json") as f:
-        json_example = json.load(f)
+    with open(EXAMPLE_JSON_PATH) as f:
+        json_example = json.dumps(json.load(f))
 
     context = ManimAgentContext(json_example=json_example)
+    user_prompt = inputs.prompt + "\n" + inputs.json_data
 
-    __ = await Runner.run(manim_generator, user_prompt, context=context)
+    result = await Runner.run(manim_generator, user_prompt, context=context)
+    scene_code = strip_code_fences(result.final_output)
 
-    # do I need to debug
+    SCENES_DIR.mkdir(parents=True, exist_ok=True)
+    scene_path = SCENES_DIR / f"generated_{conversation_id}.py"
+    scene_path.write_text(scene_code)
 
-    return ConversationCreatedResponse(conversation_id=conversation_id)
+    return AnimationCreatedResponse(
+        conversation_id=conversation_id,
+        scene_path=str(scene_path),
+    )
