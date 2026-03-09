@@ -3,9 +3,13 @@ The repo is in its design stage. Please familiarize yourself with the repo, nota
 
 ## Tools
 
-When running python, always use `python3`
+When running python, always use at least `uv run python` but prefer `uv run --all-packages python`.
 
-My editor is `code`.
+When running tests, always use at least `uv run pytest` but prefer `uv run --all-packages pytest`.
+
+Package integrity can be verified by running `uv sync --all-packages && uv run --all-packages python -c "import <package_name>"; print('ok')`. This ensures that all packages are in sync and that code is run across the entire workspace.
+
+My editor is `code`. My coding assistant is `opencode`.
 
 ## Role
 
