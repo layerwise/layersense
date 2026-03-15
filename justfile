@@ -13,26 +13,24 @@ default:
 
 # -------------------------
 
-# Start FastAPI app in dev mode (hot reload)
-dev:
-    uv run uvicorn my_project.main:app --reload --host 0.0.0.0 --port 8000
+setup:
+    uv sync --all-packages
 
 # Run all tests with coverage
 test:
-    uv run pytest --cov=my_project --cov-report=term-missing
+    uv run --all-packages pytest
 
 # Run type checks
 typecheck:
-    uv run mypy src/ tests/
+    uv run --all-packages mypy
 
 # Lint & format with ruff + black
 lint:
-    uv run ruff check src tests
-    uv run black --check src tests
+    uv run --all-packages ruff check
+    uv run --all-packages black --check
 
 format:
-    uv run ruff check --fix src tests
-    uv run black src tests
+    uv run --all-packages ruff check --fix
 
 # Run all quality checks
 check: lint typecheck test
@@ -46,16 +44,12 @@ check: lint typecheck test
 # Build wheel + sdist
 
 build:
-    uv build
+    uv build --all-packages
 
 # Install locally (editable)
 
 install:
     uv pip install -e .
-
-# Publish to PyPI (needs API token in env)
-# publish: build
-#    uv publish
 
 # -------------------------
 
