@@ -1,7 +1,6 @@
 import json
 
 import pytest
-
 from layersense_controller.websocket_manager import WebSocketManager
 
 
