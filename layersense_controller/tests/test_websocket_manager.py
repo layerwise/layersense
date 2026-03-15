@@ -20,6 +20,19 @@ class FakeWebSocket:
         self.messages.append(payload)
 
 
+class SelfRemovingDeadWebSocket:
+    def __init__(self, manager: WebSocketManager) -> None:
+        self.manager = manager
+        self.accepted = False
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def send_text(self, payload: str) -> None:
+        self.manager.disconnect(self)
+        raise RuntimeError("dead connection")
+
+
 @pytest.mark.asyncio
 async def test_broadcast_sends_to_all_connections() -> None:
     manager = WebSocketManager()
@@ -44,6 +57,29 @@ async def test_broadcast_removes_dead_connections() -> None:
     manager = WebSocketManager()
     alive = FakeWebSocket()
     dead = FakeWebSocket(should_fail=True)
+
+    await manager.connect(alive)
+    await manager.connect(dead)
+
+    await manager.broadcast({"type": "ping"})
+
+    assert manager._connections == [alive]
+
+
+def test_disconnect_unknown_websocket_is_noop() -> None:
+    manager = WebSocketManager()
+    unknown = FakeWebSocket()
+
+    manager.disconnect(unknown)
+
+    assert manager._connections == []
+
+
+@pytest.mark.asyncio
+async def test_broadcast_ignores_already_removed_dead_connection() -> None:
+    manager = WebSocketManager()
+    alive = FakeWebSocket()
+    dead = SelfRemovingDeadWebSocket(manager)
 
     await manager.connect(alive)
     await manager.connect(dead)

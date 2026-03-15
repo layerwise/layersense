@@ -15,7 +15,8 @@ class WebSocketManager:
         self._connections.append(ws)
 
     def disconnect(self, ws: WebSocket) -> None:
-        self._connections.remove(ws)
+        if ws in self._connections:
+            self._connections.remove(ws)
 
     async def broadcast(self, event: dict[str, Any]) -> None:
         payload = json.dumps(event)
@@ -26,7 +27,7 @@ class WebSocketManager:
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self._connections.remove(ws)
+            self.disconnect(ws)
 
 
 manager = WebSocketManager()
