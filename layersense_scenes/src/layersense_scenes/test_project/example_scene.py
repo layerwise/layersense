@@ -1,4 +1,21 @@
-from manim import *
+from manim import (
+    BLUE,
+    BLUE_E,
+    GREEN,
+    LEFT,
+    RIGHT,
+    UP,
+    YELLOW,
+    Circle,
+    Create,
+    Dot,
+    FadeIn,
+    Scene,
+    Square,
+    Text,
+    Transform,
+    Write,
+)
 
 
 class ExampleScene(Scene):
