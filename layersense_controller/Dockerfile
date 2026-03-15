@@ -7,10 +7,13 @@ WORKDIR /app
 
 # Copy package files
 COPY pyproject.toml .
+COPY README.md .
 COPY src/ src/
 
 # Install our package (no dev deps in prod)
+USER root
 RUN uv pip install --system --no-cache .
+USER manim
 
 ENV LAYERSENSE_SCENES_DIR=/scenes
 ENV LAYERSENSE_ARTIFACTS_DIR=/artifacts
