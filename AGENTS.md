@@ -1,7 +1,10 @@
-The present repository tries to accomplish something interesting. It aims to bridge the visual creativity of UI tools like Excalidraw for vector graphics with the precise, mathematical control of the Manim community framework - all using AI.
-The repo is in its design stage. Please familiarize yourself with the repo, notably through README.md. It is in a stale and intermediate state, nothing is set in stone. Try to grasp the vision, then iteratively refine it by asking the developer questions. Don't implement anything yet. Use your superpowers.
+The present repository aims to bridge the visual creativity of UI tools like Excalidraw for vector graphics with the precise, mathematical control of the Manim community framework - all using AI.
+The repo is in its design stage, nothing is set in stone. Please familiarize yourself with the Try to grasp the vision, then iteratively refine it by asking me questions. Don't implement anything yet. Use your superpowers.
 
 ## Tools
+
+
+### Python
 
 When running python, always use at least `uv run python` but prefer `uv run --all-packages python`.
 
@@ -10,6 +13,18 @@ When running tests, always use at least `uv run pytest` but prefer `uv run --all
 Package integrity can be verified by running `uv sync --all-packages && uv run --all-packages python -c "import <package_name>"; print('ok')`. This ensures that all packages are in sync and that code is run across the entire workspace.
 
 My editor is `code`. My coding assistant is `opencode`.
+
+When producing code, use modern Python and honour the existing code style. Use `pydantic`, `fastapi`, `openai-agents`, `tenacity`, `taskiq` (if necessary), type everything, refactor mercilessly, and write tests. Use `ruff` and `black` for linting and formatting. Always run `just lint` and `just test` before claiming a task is done.
+
+### just
+
+In a root `justfile`, the following commands are available:
+- `just setup`: Sync all packages and install dependencies
+- `just test`: Run all tests with coverage
+- `just typecheck`: Run mypy type checks
+- `just lint`: Run ruff and black checks
+- `just format`: Run ruff and black fixes
+- `just check`: Run all quality checks (lint, typecheck, test)
 
 ## Role
 
@@ -274,15 +289,15 @@ This project uses **Conventional Commits** format:
 
 ### Scope (Optional)
 Use when change affects specific component:
-- `(puc_server)`, `(puc_web)`, `(puc_crawler)`, `(puc_rag)`, etc.
+- `(agent)`, `(controller)`, `(renderer)`, `(scenes)`, etc.
 - `(version)` for version bumps
 
 ### Examples
 ```
 feat: support mistral llm
-fix(puc_web): hide link suffixes for image links
+fix(agent): hide link suffixes for image links
 chore(version): 0.3.1
-feat(puc_server): add scheduled backup mechanism
+feat(controller): add scheduled backup mechanism
 refactor: extract shared snapshot download logic
 ```
 
