@@ -5,7 +5,6 @@ from uuid import uuid4
 
 from agents import Runner
 from fastapi import APIRouter
-
 from layersense_agent.agents.agent import ManimAgentContext, manim_generator, strip_code_fences
 from layersense_agent.models.base import AnimationCreatedResponse, AnimationInputs
 
