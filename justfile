@@ -33,6 +33,9 @@ lint:
 format:
     uv run --all-packages ruff check --fix
 
+verify_imports:
+    uv sync --all-packages && uv run --all-packages python -c "import layersense_controller; import layersense_agent; import layersense_renderer; print('ok')"
+
 # Run all quality checks
 check: lint typecheck test
 
