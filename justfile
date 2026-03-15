@@ -13,6 +13,7 @@ default:
 
 # -------------------------
 
+# Sync dependencies across all packages
 setup:
     uv sync --all-packages
 
@@ -27,7 +28,7 @@ typecheck:
 # Lint & format with ruff + black
 lint:
     uv run --all-packages ruff check
-    uv run --all-packages black --check
+    uv run --all-packages black --check .
 
 format:
     uv run --all-packages ruff check --fix
@@ -42,7 +43,6 @@ check: lint typecheck test
 # -------------------------
 
 # Build wheel + sdist
-
 build:
     uv build --all-packages
 
