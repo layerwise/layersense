@@ -22,13 +22,13 @@ def test_health() -> None:
 
 
 def test_render_returns_404_for_missing_file(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "scenes_dir", tmp_path / "scenes")
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path / "artifacts")
     client = _build_client()
+    missing_path = tmp_path / "missing_scene.py"
 
     response = client.post(
         "/render",
-        json={"scene_path": "missing_scene.py", "conversation_id": "conv-1"},
+        json={"scene_path": str(missing_path), "conversation_id": "conv-1"},
     )
 
     assert response.status_code == 404
@@ -40,7 +40,6 @@ def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> No
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
     artifacts_dir.mkdir()
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
 
     scene_path = scenes_dir / "demo_scene.py"
@@ -62,7 +61,7 @@ def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> No
     client = _build_client()
     response = client.post(
         "/render",
-        json={"scene_path": "demo_scene.py", "conversation_id": "conv-1"},
+        json={"scene_path": str(scene_path), "conversation_id": "conv-1"},
     )
 
     assert response.status_code == 200
@@ -71,3 +70,30 @@ def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> No
     assert events[0]["type"] == "artifact_ready"
     assert events[0]["preview_url"] == f"/artifacts/{preview.name}"
     assert events[0]["final_url"] == f"/artifacts/{final.name}"
+
+
+def test_render_returns_404_for_directory_path(tmp_path) -> None:
+    client = _build_client()
+    directory_path = tmp_path / "scene_dir"
+    directory_path.mkdir()
+
+    response = client.post(
+        "/render",
+        json={"scene_path": str(directory_path), "conversation_id": "conv-1"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Scene file not found"
+
+
+def test_artifact_returns_404_for_directory(tmp_path, monkeypatch) -> None:
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    (artifacts_dir / "dir.mp4").mkdir()
+
+    client = _build_client()
+    response = client.get("/artifacts/dir.mp4")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Artifact not found"

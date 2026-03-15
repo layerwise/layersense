@@ -35,19 +35,16 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 @router.get("/artifacts/{filename}")
 async def get_artifact(filename: str) -> FileResponse:
     artifact_path = settings.artifacts_dir / filename
-    if artifact_path.suffix != ".mp4" or not artifact_path.exists():
+    if not artifact_path.exists() or not artifact_path.is_file():
         raise HTTPException(status_code=404, detail="Artifact not found")
     return FileResponse(path=artifact_path, media_type="video/mp4", filename=filename)
 
 
 @router.post("/render")
 async def render(request: RenderRequest, background_tasks: BackgroundTasks) -> dict[str, str]:
-    requested_path = Path(request.scene_path)
-    scene_path = (
-        requested_path if requested_path.is_absolute() else settings.scenes_dir / requested_path
-    )
+    scene_path = Path(request.scene_path)
 
-    if not scene_path.exists():
+    if not scene_path.exists() or not scene_path.is_file():
         raise HTTPException(status_code=404, detail="Scene file not found")
 
     content_hash = hash_file(scene_path)
@@ -85,7 +82,7 @@ async def _render_pipeline(scene_path: Path, content_hash: str, conversation_id:
                 {
                     "type": "preview_ready",
                     "conversation_id": conversation_id,
-                    "preview_url": f"/artifacts/{preview_path.name}",
+                    "url": f"/artifacts/{preview_path.name}",
                 }
             )
 
@@ -95,7 +92,7 @@ async def _render_pipeline(scene_path: Path, content_hash: str, conversation_id:
                 {
                     "type": "render_ready",
                     "conversation_id": conversation_id,
-                    "final_url": f"/artifacts/{final_path.name}",
+                    "url": f"/artifacts/{final_path.name}",
                 }
             )
     except RenderError as exc:
