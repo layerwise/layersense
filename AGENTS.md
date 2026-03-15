@@ -1,8 +1,7 @@
 The present repository aims to bridge the visual creativity of UI tools like Excalidraw for vector graphics with the precise, mathematical control of the Manim community framework - all using AI.
-The repo is in its design stage, nothing is set in stone. Please familiarize yourself with the Try to grasp the vision, then iteratively refine it by asking me questions. Don't implement anything yet. Use your superpowers.
+The repo is in its design stage, nothing is set in stone. If not clear from the context, familiarize yourself with the repo to try to grasp the vision.
 
 ## Tools
-
 
 ### Python
 
