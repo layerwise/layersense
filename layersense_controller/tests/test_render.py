@@ -2,10 +2,7 @@ import os
 from pathlib import Path
 
 import pytest
-
-from layersense_controller.render import RenderError
-from layersense_controller.render import _parse_output_path
-from layersense_controller.render import render_preview
+from layersense_controller.render import RenderError, _parse_output_path, render_preview
 
 
 def test_parse_output_path_from_file_ready_line(tmp_path):
