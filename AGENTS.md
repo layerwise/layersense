@@ -14,7 +14,7 @@ Package integrity can be verified by running `uv sync --all-packages && uv run -
 
 My editor is `code`. My coding assistant is `opencode`.
 
-When producing code, use modern Python and honour the existing code style. Use `pydantic`, `fastapi`, `openai-agents`, `tenacity`, `taskiq` (if necessary), type everything, refactor mercilessly, and write tests. Use `ruff` and `black` for linting and formatting. Always run `just lint` and `just test` before claiming a task is done.
+When producing code, use modern Python and honour the existing code style. Use `pydantic`, `fastapi`, `openai-agents`, `tenacity`, `taskiq` (if necessary), type everything, refactor mercilessly, and write tests. Use `ruff` and `black` for linting and formatting. Always run `just lint` and `just test` before claiming a task is done. Fix lint issues with `just format`.
 
 ### just
 
@@ -25,6 +25,7 @@ In a root `justfile`, the following commands are available:
 - `just lint`: Run ruff and black checks
 - `just format`: Run ruff and black fixes
 - `just check`: Run all quality checks (lint, typecheck, test)
+- `just verify_imports`: Verify that all packages can be imported without errors (use after adding new dependencies or making changes that could affect imports)
 
 ## Role
 
