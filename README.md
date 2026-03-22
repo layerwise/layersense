@@ -42,6 +42,30 @@ This pipeline allows code changes to automatically trigger renders, which are ex
 
 ---
 
+# Frontend Milestone: Stock Excalidraw Integration
+
+The current frontend milestone introduces a stock (unpatched) Excalidraw workflow in `layersense_frontend/`.
+
+Implemented behavior:
+
+- User draws in Excalidraw and writes a prompt in the React app.
+- Clicking `Generate` snapshots the current Excalidraw scene at click time.
+- Frontend calls the agent API to create scene code, then queues render on the controller.
+- Frontend listens to `ws://localhost:8001/ws` and handles:
+  - `artifact_ready`
+  - `preview_ready`
+  - `render_ready`
+  - `render_failed`
+- Video output prefers final render over preview and does not autoplay.
+
+Decisions finalized for this milestone:
+
+- Each `Generate` click starts a new conversation flow.
+- No explicit `Cancel render` action yet.
+- Preview waits for user play interaction (no autoplay).
+
+---
+
 # Goals
 
 The system aims to:
