@@ -62,8 +62,8 @@ Outcome: this list is fully closed.
 ## Stale or Outdated Planning Artifacts
 
 1. `docs/plans/2026-03-16-frontend-stock-excalidraw-implementation-plan.md`
-   - Referenced in conversation, but currently missing from repo.
-   - Action: either restore it (if expected) or remove references to avoid confusion.
+   - Restored on `develop`.
+   - Action: keep as the implementation baseline for the frontend milestone.
 
 2. `docs/plans/2026-03-16-desktop-workspace-layout-design.md`
    - States "non-collapsible right inspector" and "no mobile changes".
