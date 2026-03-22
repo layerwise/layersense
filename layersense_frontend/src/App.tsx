@@ -1,120 +1,153 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useCallback, useRef, useState } from 'react'
+
 import './App.css'
+import { createAnimation, queueRender } from './api'
+import { Canvas, type CanvasHandle } from './components/Canvas'
+import { VideoPlayer } from './components/VideoPlayer'
+import { useRenderEvents } from './hooks/useRenderEvents'
+
+type AppStatus =
+  | 'idle'
+  | 'submitting_to_agent'
+  | 'queueing_render'
+  | 'waiting_for_preview'
+  | 'waiting_for_final'
+  | 'complete'
+  | 'error'
+
+const isGenerateDisabled = (status: AppStatus): boolean =>
+  status === 'submitting_to_agent' || status === 'queueing_render'
+
+const normalizeError = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return 'Unexpected error'
+}
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [prompt, setPrompt] = useState('')
+  const [status, setStatus] = useState<AppStatus>('idle')
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [finalUrl, setFinalUrl] = useState<string | null>(null)
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const canvasRef = useRef<CanvasHandle>(null)
+
+  const handleArtifactReady = useCallback((payload: { previewUrl: string; finalUrl: string }) => {
+    setPreviewUrl(payload.previewUrl)
+    setFinalUrl(payload.finalUrl)
+    setStatus('complete')
+    setError(null)
+  }, [])
+
+  const handlePreviewReady = useCallback((url: string) => {
+    setPreviewUrl(url)
+    setStatus('waiting_for_final')
+  }, [])
+
+  const handleRenderReady = useCallback((url: string) => {
+    setFinalUrl(url)
+    setStatus('complete')
+    setError(null)
+  }, [])
+
+  const handleRenderFailed = useCallback((payload: { error: string; stderr?: string }) => {
+    setError(payload.error)
+    setStatus('error')
+  }, [])
+
+  useRenderEvents({
+    conversationId,
+    onArtifactReady: handleArtifactReady,
+    onPreviewReady: handlePreviewReady,
+    onRenderReady: handleRenderReady,
+    onRenderFailed: handleRenderFailed,
+  })
+
+  const handleGenerate = useCallback(async () => {
+    try {
+      setError(null)
+      setPreviewUrl(null)
+      setFinalUrl(null)
+      setConversationId(null)
+      setStatus('submitting_to_agent')
+
+      const snapshot = canvasRef.current?.getSceneSnapshot() ?? {
+        elements: [],
+        appState: {},
+        files: {},
+      }
+
+      const animation = await createAnimation({ prompt, scene: snapshot })
+      setConversationId(animation.conversation_id)
+
+      setStatus('queueing_render')
+      await queueRender({
+        scene_path: animation.scene_path,
+        conversation_id: animation.conversation_id,
+      })
+
+      setStatus('waiting_for_preview')
+    } catch (requestError) {
+      setError(normalizeError(requestError))
+      setStatus('error')
+    }
+  }, [prompt])
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+    <main className="app-shell">
+      <header className="app-header">
+        <div className="header-copy">
+          <h1>LayerSense Studio</h1>
+          <p>Draw in Excalidraw, describe your animation, then generate and render.</p>
         </div>
         <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
+          type="button"
+          className="sidebar-toggle"
+          onClick={() => setIsSidebarCollapsed((value) => !value)}
+          aria-label={isSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
         >
-          Count is {count}
+          {isSidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar'}
         </button>
+      </header>
+
+      <section className={`workspace-grid${isSidebarCollapsed ? ' workspace-grid--collapsed' : ''}`}>
+        <section className="panel panel-canvas">
+          <h2>Canvas</h2>
+          <div className="canvas-frame">
+            <Canvas ref={canvasRef} />
+          </div>
+        </section>
+
+        {!isSidebarCollapsed ? (
+          <aside className="inspector">
+            <section className="panel panel-controls">
+              <h2>Prompt</h2>
+              <label htmlFor="animation-prompt">Describe the animation sequence</label>
+              <textarea
+                id="animation-prompt"
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="Create the circle, then move it to the right while changing color."
+                rows={5}
+              />
+
+              <button type="button" onClick={handleGenerate} disabled={isGenerateDisabled(status)}>
+                Generate
+              </button>
+            </section>
+
+            <section className="panel panel-output">
+              <h2>Render Output</h2>
+              <VideoPlayer previewUrl={previewUrl} finalUrl={finalUrl} error={error} status={status} />
+            </section>
+          </aside>
+        ) : null}
       </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 

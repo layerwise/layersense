@@ -1,4 +1,5 @@
-import { Excalidraw, type ExcalidrawImperativeAPI } from '@excalidraw/excalidraw'
+import { Excalidraw } from '@excalidraw/excalidraw'
+import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types'
 import { forwardRef, useCallback, useImperativeHandle, useRef } from 'react'
 
 import type { ExcalidrawSceneSnapshot } from '../types'
@@ -38,5 +39,9 @@ export const Canvas = forwardRef<CanvasHandle>(function Canvas(_, ref) {
     [],
   )
 
-  return <Excalidraw excalidrawAPI={setApi} />
+  return (
+    <div className="canvas-host" data-testid="canvas-host">
+      <Excalidraw excalidrawAPI={setApi} />
+    </div>
+  )
 })

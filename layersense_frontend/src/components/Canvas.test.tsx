@@ -27,6 +27,7 @@ describe('Canvas', () => {
   it('renders Excalidraw container', () => {
     const ref = createRef<CanvasHandle>()
     const { getByTestId } = render(<Canvas ref={ref} />)
+    expect(getByTestId('canvas-host')).toBeTruthy()
     expect(getByTestId('excalidraw-canvas')).toBeTruthy()
   })
 
