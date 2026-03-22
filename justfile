@@ -36,12 +36,13 @@ format:
 # Start frontend dev server
 frontend-dev:
     npm --prefix layersense_frontend install
-    npm --prefix layersense_frontend run dev -- --host 0.0.0.0
+    npm --prefix layersense_frontend run dev -- --host 0.0.0.0 --port 3000
 
-# Build frontend production bundle
-frontend-build:
-    npm --prefix layersense_frontend install
-    npm --prefix layersense_frontend run build
+controller-dev:
+    uv run --all-packages uvicorn layersense_controller.main:app --host 0.0.0.0 --port 8001
+
+agent-dev:
+    uv run --all-packages uvicorn layersense_agent.main:app --host 0.0.0.0 --port 8000
 
 verify_imports:
     uv sync --all-packages && uv run --all-packages python -c "import layersense_controller; import layersense_agent; import layersense_renderer; print('ok')"
@@ -58,6 +59,12 @@ check: lint typecheck test
 # Build wheel + sdist
 build:
     uv build --all-packages
+
+
+# Build frontend production bundle
+frontend-build:
+    npm --prefix layersense_frontend install
+    npm --prefix layersense_frontend run build
 
 # Install locally (editable)
 
