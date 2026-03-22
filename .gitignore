@@ -6,6 +6,7 @@
 
 # environment variables and secrets
 .env
+.envrc
 
 # venv
 .venv_layersense
