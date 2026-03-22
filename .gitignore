@@ -13,6 +13,9 @@
 # VSCode
 .vscode
 
+# data folders
+assets/ui_screenshots
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
