@@ -139,19 +139,11 @@ Frontend must ignore events for other `conversation_id`s.
 6. Add focused tests for state transitions and event handling.
 7. Wire into Docker/frontend runtime flow (Task 14+).
 
-<<<<<<< HEAD
 ## Finalized Decisions
 
 1. Generate click always starts a new conversation for this milestone.
 2. Cancel render action is deferred.
 3. Preview does not autoplay; playback starts on user interaction.
-=======
-## Open Questions To Freeze Before Coding
-
-1. Should each Generate click always start a new conversation, or reuse last conversation until user clears session?
-2. Do we want an explicit "Cancel render" action in this milestone, or defer?
-3. Should preview autoplay immediately when available, or wait for user click?
->>>>>>> 425d28c (docs: Excalidraw integration plans)
 
 ## Acceptance Criteria
 
