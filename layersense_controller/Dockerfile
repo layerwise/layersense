@@ -1,4 +1,5 @@
-FROM manimcommunity/manim:latest
+FROM manimcommunity/manim:v0.20.1
+
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -13,7 +14,6 @@ COPY src/ src/
 # Install our package (no dev deps in prod)
 USER root
 RUN uv pip install --system --no-cache .
-USER manim
 
 ENV LAYERSENSE_SCENES_DIR=/scenes
 ENV LAYERSENSE_ARTIFACTS_DIR=/artifacts
