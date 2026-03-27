@@ -29,6 +29,7 @@ typecheck:
 lint:
     uv run --all-packages ruff check
     uv run --all-packages black --check .
+    docker compose config
 
 format:
     uv run --all-packages ruff check --fix
@@ -37,6 +38,12 @@ format:
 frontend-dev:
     npm --prefix layersense_frontend install
     npm --prefix layersense_frontend run dev -- --host 0.0.0.0 --port 3000
+
+docker:
+    docker compose up --build
+
+docker-down:
+    docker compose down
 
 controller-dev:
     uv run --all-packages uvicorn layersense_controller.main:app --host 0.0.0.0 --port 8001

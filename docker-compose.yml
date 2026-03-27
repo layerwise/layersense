@@ -1,0 +1,40 @@
+services:
+  frontend:
+    build:
+      context: ./layersense_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./layersense_frontend:/app
+      - frontend_node_modules:/app/node_modules
+    depends_on:
+      - agent
+      - controller
+
+  agent:
+    build:
+      context: ./layersense_agent
+    ports:
+      - "8000:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SCENES_DIR: /scenes
+    volumes:
+      - ./layersense_scenes:/scenes
+
+  controller:
+    build:
+      context: ./layersense_controller
+    ports:
+      - "8001:8001"
+    environment:
+      LAYERSENSE_SCENES_DIR: /scenes
+      LAYERSENSE_ARTIFACTS_DIR: /artifacts
+    volumes:
+      - ./layersense_scenes:/scenes
+      - ./layersense_artifacts:/artifacts
+
+volumes:
+  frontend_node_modules:

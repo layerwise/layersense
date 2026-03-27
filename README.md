@@ -26,8 +26,30 @@ The project currently targets a simple local-developer architecture:
 
 ## What This Repo Is Not Yet
 
-- Not a fully wired Docker-first stack.
+- Not a stable production Docker deployment target.
 - Not a multi-user distributed rendering system.
 - Not a stable production deployment target.
 
 Older README sections describing Redis/Celery workers and distributed rendering are intentionally removed because they no longer describe the current implementation path.
+
+## Local Docker Dev Stack
+
+Start the local development stack with:
+
+```bash
+just docker
+```
+
+This starts:
+
+- `frontend` at `http://localhost:3000`
+- `agent` at `http://localhost:8000`
+- `controller` at `http://localhost:8001`
+
+Notes:
+
+- Export `OPENAI_API_KEY` in your shell before running `just docker`.
+- The current compose stack intentionally omits Redis because the implemented local flow does not use it.
+- Shared host-mounted directories are used for scene and artifact exchange:
+  - `./layersense_scenes`
+  - `./layersense_artifacts`
