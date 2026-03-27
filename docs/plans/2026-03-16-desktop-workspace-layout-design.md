@@ -1,7 +1,7 @@
 # Desktop Workspace Layout Design
 
 Date: 2026-03-16
-Status: Approved (partially superseded by implemented sidebar collapse iteration)
+Status: Approved
 Scope: `layersense_frontend` desktop UX only
 
 ## Goal
@@ -10,8 +10,8 @@ Improve the frontend workspace layout so the Excalidraw canvas is clearly domina
 
 ## Confirmed Decisions
 
-1. Initial decision was a desktop-first, non-collapsible right inspector.
-2. Initial decision deferred explicit mobile-focused redesign work.
+1. Use a desktop-first, non-collapsible right inspector.
+2. Defer mobile layout changes entirely.
 3. Keep prompt and render output visible at the same time.
 4. Keep existing interaction flow and backend integration unchanged.
 
@@ -71,8 +71,8 @@ Adopt a full-width desktop workspace with a fixed right inspector.
 
 ## Non-Goals
 
-- No mobile-first redesign in this change.
-- No complex multi-mode workspace behavior beyond a simple sidebar collapse toggle.
+- No mobile responsiveness work in this change.
+- No collapsible sidebar behavior.
 - No websocket/connectivity behavior changes.
 - No API/data flow/state-machine redesign.
 
@@ -93,10 +93,6 @@ Adopt a full-width desktop workspace with a fixed right inspector.
 3. Prompt and render output are both visible in a fixed right inspector.
 4. Layout is stable at common desktop sizes (1440x900 and 1920x1080).
 5. Existing frontend tests continue to pass.
-
-## Revision Note (Post-Implementation)
-
-The implemented frontend now includes a simple sidebar collapse/expand control and lightweight responsive handling. This remains consistent with the broader goal (canvas-dominant workspace), but supersedes the stricter "non-collapsible" constraint above.
 
 ## Verification Plan
 

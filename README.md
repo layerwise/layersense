@@ -64,10 +64,6 @@ Decisions finalized for this milestone:
 - No explicit `Cancel render` action yet.
 - Preview waits for user play interaction (no autoplay).
 
-Current milestone report and next-step outlook:
-
-- `docs/2026-03-22-stock-excalidraw-milestone-result.md`
-
 ---
 
 # Goals
