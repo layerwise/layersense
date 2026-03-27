@@ -1,188 +1,33 @@
-# AI-augmented Visual Manim Animator with Distributed Manim Rendering Pipeline
+# LayerSense
 
-This project provides an automated and scalable rendering pipeline for **Manim Community** animations to undergird an Excalidraw-powered frontend for intuitive,
-visual animation design with a Manim backend.
+LayerSense aims to bridge the visual creativity of Excalidraw with the precise, mathematical control of Manim, using AI to translate drawings and prompts into runnable animation code.
 
-In a typical video animation workflow, a digital artist will use UI-heavy tools like After Effects or Blender to create and render animations. However, these tools can be complex and require significant manual effort to iterate on designs, and they
-do not afford the precise, mathematical control that Manim provides.
+## Start Here
 
-On the other hand, Manim allows for programmatic animation creation with fine-grained control, but it lacks a visual interface and can be slow to render, especially for complex scenes.
+- Read `docs/ROADMAP.md` for the current project vision, doc map, and milestone status.
+- Read `docs/plans/2026-03-07-layersense-architecture-design.md` for the canonical system design.
 
-An AI-augmented visual animator can bridge this gap by providing a user-friendly interface for designing animations while leveraging Manim's powerful rendering capabilities. The system can automatically translate visual designs into Manim code, and then manage the rendering process efficiently.
+## Current Status
 
-The distributed Manim Rendering Pipeline removes the manual render loop (`edit → render → wait → tweak → repeat`) by introducing automatic file watching, task queuing, and parallelized rendering using containerized workers.
+- `layersense_frontend/` contains a stock-Excalidraw React app with prompt input, generate flow, and preview/final render UI.
+- `layersense_agent/` can accept animation requests and write generated Manim scene files.
+- `layersense_controller/` can watch scenes, queue renders, cache artifacts, and broadcast render events.
+- The full end-to-end workflow is partially implemented but still needs reliability validation and hardening before it should be treated as production-ready.
 
-The system is designed for **fast iteration during development** and **scalable batch rendering** when needed.
+## Current Architecture
 
----
+The project currently targets a simple local-developer architecture:
 
-# Overview
+1. Browser frontend captures an Excalidraw scene snapshot and prompt.
+2. `layersense_agent` generates Manim code and writes a scene file.
+3. `layersense_controller` watches for scene file changes.
+4. Controller renders preview/final artifacts and serves them over HTTP.
+5. Frontend listens for render events over WebSocket and updates the player.
 
-The architecture consists of the following components:
+## What This Repo Is Not Yet
 
-Developer edits scene
-│
-▼
-File Watcher (watchdog)
-│
-▼
-Render Controller API
-│
-▼
-Task Queue (Redis)
-│
-▼
-Render Workers (Docker + Manim)
-│
-▼
-Artifacts Storage
+- Not a fully wired Docker-first stack.
+- Not a multi-user distributed rendering system.
+- Not a stable production deployment target.
 
-
-This pipeline allows code changes to automatically trigger renders, which are executed asynchronously and in parallel.
-
----
-
-# Frontend Milestone: Stock Excalidraw Integration
-
-The current frontend milestone introduces a stock (unpatched) Excalidraw workflow in `layersense_frontend/`.
-
-Implemented behavior:
-
-- User draws in Excalidraw and writes a prompt in the React app.
-- Clicking `Generate` snapshots the current Excalidraw scene at click time.
-- Frontend calls the agent API to create scene code, then queues render on the controller.
-- Frontend listens to `ws://localhost:8001/ws` and handles:
-  - `artifact_ready`
-  - `preview_ready`
-  - `render_ready`
-  - `render_failed`
-- Video output prefers final render over preview and does not autoplay.
-
-Decisions finalized for this milestone:
-
-- Each `Generate` click starts a new conversation flow.
-- No explicit `Cancel render` action yet.
-- Preview waits for user play interaction (no autoplay).
-
----
-
-# Goals
-
-The system aims to:
-
-- Automate rendering when scene code changes
-- Parallelize rendering workloads
-- Reduce developer wait time
-- Provide reproducible rendering environments
-- Enable scaling across multiple machines or GPUs
-- Cache identical renders to avoid redundant work
-
----
-
-# Core Components
-
-## File Watcher
-
-A local watcher monitors the animation repository for changes.
-
-**Technology**
-
-- `watchdog` (Python)
-
-**Behavior**
-
-- Detects file changes (`*.py`, `*.tex`, etc.)
-- Sends a render request to the controller API
-
-This removes the need to manually invoke the Manim CLI.
-
----
-
-## Controller API
-
-The controller coordinates rendering requests.
-
-**Responsibilities**
-
-- Receives render requests
-- Computes a content hash of the scene
-- Checks whether the scene was already rendered
-- Enqueues new render tasks if needed
-
-**Desired frameworks**
-
-- FastAPI
-
----
-
-## Task Queue
-
-Rendering jobs are dispatched through a message queue.
-
-**Technology**
-
-- Redis (message broker)
-- Celery or Taskiq (task execution)
-
-This allows:
-
-- asynchronous rendering
-- parallel workers
-- retry policies
-- distributed scaling
-
----
-
-## Render Workers
-
-Workers are Docker containers that execute Manim renders.
-
-Each task:
-
-1. Creates an isolated working directory
-2. Runs the Manim CLI
-3. Captures logs and output
-4. Stores artifacts
-
-Workers can run in parallel across multiple CPU cores or machines.
-
-**Key dependencies**
-
-- Manim Community
-- ffmpeg
-- LaTeX
-- Cairo / Pango
-
----
-
-## Artifact Storage
-
-Rendered videos and frames are stored for reuse.
-
-Options include:
-
-- Local filesystem
-- NFS
-- S3-compatible storage (MinIO / AWS S3)
-
-Artifacts are keyed by a **content hash**, enabling caching.
-
----
-
-# Render Caching
-
-To prevent redundant rendering, a content hash is computed from:
-
-- scene source code
-- rendering arguments
-- Manim version
-
-If the same hash already exists in storage, rendering is skipped.
-
----
-
-# Parallel Execution
-
-Multiple render workers can run simultaneously.
-
-Example:
+Older README sections describing Redis/Celery workers and distributed rendering are intentionally removed because they no longer describe the current implementation path.

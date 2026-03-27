@@ -154,5 +154,4 @@ a single local developer and avoids operational overhead.
 - **WebSocket fanout**: For simplicity, a single WebSocket connection per session is assumed.
   If multiple tabs are open, each should receive its own events (keyed by `conversation_id`).
 
-- **Scaling**: The Redis/Celery queue from the original README remains viable if the system
-  needs to support multiple concurrent users or remote GPU rendering in the future.
+- **Scaling**: The current implementation path favors a simpler local-first stack. A queued/distributed render architecture remains a future option if the project later needs multi-user or remote GPU rendering.

@@ -8,6 +8,8 @@
 
 **Tech Stack:** React 19, TypeScript, Vite, `@excalidraw/excalidraw`, native `fetch`, browser `WebSocket`.
 
+**Status:** Mostly implemented. Keep this document as a task-level historical plan and gap-analysis aid rather than a literal checklist of remaining work.
+
 ---
 
 ### Task 1: Add frontend API client and shared types
@@ -289,6 +291,8 @@ Expected: PASS.
 Run: `cd layersense_frontend && npm run dev -- --host 0.0.0.0`
 Expected: Vite serves app.
 
+Note: if validating browser requests against current backend CORS settings, prefer serving the frontend on port `3000` instead of Vite's default `5173`.
+
 **Step 3: Workspace checks**
 
 Run from repo root:
@@ -341,6 +345,12 @@ Run in order before declaring complete:
 4. `just test`
 
 Expected: all green.
+
+## Stale Assumptions In This Plan
+
+- The plan assumes a straightforward Docker-first runtime path; current repo startup is still more manual.
+- The plan predates the later desktop layout pass, including the now-collapsible sidebar.
+- The plan should not be used as proof that the live full-stack workflow is already fully validated.
 
 ## Notes for Implementer
 

@@ -1488,6 +1488,8 @@ docker compose up --build
 
 Expected: all three services start, controller logs "File watcher started".
 
+Reality note: this step is currently stale relative to the repo root `docker-compose.yml`, which is not yet wired to start the agent, controller, and frontend stack described in this plan. Use this section as the intended smoke-test shape, not the exact current startup procedure.
+
 ---
 
 ### Step 16.2 — Open the frontend
@@ -1551,3 +1553,5 @@ These are flagged in the design doc and deferred for now:
 2. **Multi-turn conversation:** The `conversation_id` is wired through but there is no conversation history. A second "Generate" creates a new `conversation_id` and a new file. Multi-turn (refine the same animation) is left for a future milestone.
 
 3. **`OPENAI_API_KEY` management:** The docker-compose uses `${OPENAI_API_KEY}` from the host environment. Document this in README. A `.env` file is supported by docker-compose automatically (see `.env.template`).
+
+4. **Startup ergonomics drift:** The original implementation plan assumed a coherent Docker-first startup flow. Current validation may require manual service startup until compose wiring is brought back in sync.

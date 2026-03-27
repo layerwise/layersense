@@ -6,6 +6,10 @@
 
 Implement a production-ready frontend interaction flow where users draw in stock Excalidraw, submit a prompt, trigger generation, and receive preview/final render updates over WebSocket.
 
+## Status
+
+This milestone is largely implemented in `layersense_frontend/`, but the full end-to-end flow is not yet considered fully proven under default startup tooling. Treat this document as the intended integration contract for the frontend milestone, not proof that every runtime path is already reliable.
+
 ## Non-Goals
 
 - No Excalidraw source code patching/forking.
@@ -101,8 +105,8 @@ Frontend must ignore events for other `conversation_id`s.
 
 - Agent request failure: transition to `error`, show retry CTA, preserve prompt/canvas.
 - Render queue failure: transition to `error`, show backend message.
-- WebSocket disconnect before completion: auto-reconnect with capped retries; if retries exhausted, show recoverable error and "Reconnect" button.
-- `render_failed`: display concise error with expandable details (`stderr`).
+- WebSocket disconnect before completion: reconnect strategy is still deferred; current implementation opens the socket eagerly and does not yet provide the full reconnect UX described here.
+- `render_failed`: display concise error; richer `stderr` surfacing remains future work.
 
 ## UX Behavior Decisions
 
@@ -127,7 +131,7 @@ Frontend must ignore events for other `conversation_id`s.
 
 ## Integration Smoke
 
-- Run full stack via docker-compose, open frontend, generate from sample scene, verify preview then final playback.
+- Run full stack using the currently documented manual startup flow (or future compose wiring), open frontend, generate from sample scene, verify preview then final playback.
 
 ## Implementation Sequence
 
@@ -138,6 +142,8 @@ Frontend must ignore events for other `conversation_id`s.
 5. Implement VideoPlayer states and URL switching logic.
 6. Add focused tests for state transitions and event handling.
 7. Wire into Docker/frontend runtime flow (Task 14+).
+
+Note: the original Docker-first assumption in this sequence is stale relative to the current repo. Runtime validation currently depends on manual service startup unless/until `docker-compose.yml` is brought back in sync with the implementation.
 
 ## Finalized Decisions
 
@@ -152,3 +158,7 @@ Frontend must ignore events for other `conversation_id`s.
 - Frontend successfully triggers controller render and receives events via WebSocket.
 - Preview and final videos are displayed at the correct event times.
 - Errors are visible and recoverable without page reload.
+
+## Reality Check
+
+The UI contract and most frontend code paths are implemented, but the overall claim "frontend flow is working" should currently be read as "implemented and test-covered in the frontend" rather than "fully validated across the live stack in all startup configurations."

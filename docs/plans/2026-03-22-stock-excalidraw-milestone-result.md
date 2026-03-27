@@ -18,6 +18,8 @@ LayerSense now has a working frontend flow using unmodified Excalidraw:
 
 Core UI is now usable for iterative work, with a large canvas-first desktop layout and a collapsible right sidebar.
 
+Important caveat: "working frontend flow" is true at the implementation and frontend-test level, but should not be read as "fully validated live stack under default repo startup tooling."
+
 ## To-Do Audit (Collected Across This Session)
 
 ## List A — Frontend integration implementation (8 tasks)
@@ -62,13 +64,13 @@ Outcome: this list is fully closed.
 ## Stale or Outdated Planning Artifacts
 
 1. `docs/plans/2026-03-16-frontend-stock-excalidraw-implementation-plan.md`
-   - Referenced in conversation, but currently missing from repo.
-   - Action: either restore it (if expected) or remove references to avoid confusion.
+   - Restored, but should now be treated as a historical implementation plan rather than a literal current checklist.
+   - Action: keep aligned with current caveats, not as a source of truth for runtime readiness.
 
 2. `docs/plans/2026-03-16-desktop-workspace-layout-design.md`
-   - States "non-collapsible right inspector" and "no mobile changes".
-   - Current implementation now includes a collapsible sidebar and responsive layout handling.
-   - Action: update status/decisions section or supersede with a revision note.
+   - Originally stated "non-collapsible right inspector" and "no mobile changes".
+   - Implementation now includes a collapsible sidebar and responsive layout behavior.
+   - Action: keep only as historical context with a clear superseded note.
 
 ## What Was Achieved So Far
 
