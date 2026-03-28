@@ -44,6 +44,7 @@ agent-dev:
 # Run all tests with coverage
 test:
     uv run --all-packages pytest
+    cd layersense_frontend && npm test
 
 # Run type checks
 typecheck:
