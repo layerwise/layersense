@@ -1,9 +1,11 @@
 import hashlib
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from layersense_controller.config import settings
-from layersense_controller.router import router
+from layersense_controller.render import RenderError
+from layersense_controller.router import _render_pipeline, router
 
 
 def _build_client() -> TestClient:
@@ -97,3 +99,155 @@ def test_artifact_returns_404_for_directory(tmp_path, monkeypatch) -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Artifact not found"
+
+
+def test_render_queues_and_broadcasts_preview_and_final(tmp_path, monkeypatch, caplog) -> None:
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+
+    scene_path = tmp_path / "queued_scene.py"
+    scene_path.write_text("print('queued')\n")
+    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    preview_target = artifacts_dir / f"{content_hash}_preview.mp4"
+    final_target = artifacts_dir / f"{content_hash}_final.mp4"
+
+    async def fake_render_preview(scene_path_arg, content_hash_arg):
+        assert scene_path_arg == scene_path
+        assert content_hash_arg == content_hash
+        preview_target.write_bytes(b"preview")
+        return preview_target
+
+    async def fake_render_final(scene_path_arg, content_hash_arg):
+        assert scene_path_arg == scene_path
+        assert content_hash_arg == content_hash
+        final_target.write_bytes(b"final")
+        return final_target
+
+    events: list[dict[str, str]] = []
+
+    async def fake_broadcast(event: dict[str, str]) -> None:
+        events.append(event)
+
+    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
+    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
+    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
+
+    client = _build_client()
+    with caplog.at_level("INFO", logger="layersense_controller.router"):
+        response = client.post(
+            "/render",
+            json={"scene_path": str(scene_path), "conversation_id": "conv-queued"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "queued"}
+    assert events == [
+        {
+            "type": "preview_ready",
+            "conversation_id": "conv-queued",
+            "url": f"/artifacts/{preview_target.name}",
+        },
+        {
+            "type": "render_ready",
+            "conversation_id": "conv-queued",
+            "url": f"/artifacts/{final_target.name}",
+        },
+    ]
+    assert preview_target.exists()
+    assert final_target.exists()
+    assert [record.message for record in caplog.records] == [
+        f"render started for conv-queued: {scene_path}",
+        f"preview ready for conv-queued: {preview_target}",
+        f"render ready for conv-queued: {final_target}",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_render_pipeline_logs_and_broadcasts_render_error(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+
+    scene_path = tmp_path / "render_error_scene.py"
+    scene_path.write_text("print('broken')\n")
+    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    render_error = RenderError("manim exited with code 1", "traceback lines")
+
+    async def fake_render_preview(scene_path_arg, content_hash_arg):
+        assert scene_path_arg == scene_path
+        assert content_hash_arg == content_hash
+        raise render_error
+
+    events: list[dict[str, str]] = []
+
+    async def fake_broadcast(event: dict[str, str]) -> None:
+        events.append(event)
+
+    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
+    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
+
+    with caplog.at_level("WARNING", logger="layersense_controller.router"):
+        await _render_pipeline(
+            scene_path=scene_path,
+            content_hash=content_hash,
+            conversation_id="conv-render-error",
+        )
+
+    assert events == [
+        {
+            "type": "render_failed",
+            "conversation_id": "conv-render-error",
+            "error": "manim exited with code 1",
+            "stderr": "traceback lines",
+        }
+    ]
+    assert [record.message for record in caplog.records if record.levelname == "WARNING"] == [
+        (
+            "render failed for conv-render-error at "
+            f"{scene_path}: manim exited with code 1; stderr=traceback lines"
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_render_pipeline_broadcasts_failure_for_unexpected_errors(
+    tmp_path, monkeypatch
+) -> None:
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+
+    scene_path = tmp_path / "broken_scene.py"
+    scene_path.write_text("print('broken')\n")
+    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+
+    async def fake_render_preview(scene_path_arg, content_hash_arg):
+        assert scene_path_arg == scene_path
+        assert content_hash_arg == content_hash
+        raise RuntimeError("preview exploded")
+
+    events: list[dict[str, str]] = []
+
+    async def fake_broadcast(event: dict[str, str]) -> None:
+        events.append(event)
+
+    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
+    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
+
+    await _render_pipeline(
+        scene_path=scene_path,
+        content_hash=content_hash,
+        conversation_id="conv-fail",
+    )
+
+    assert events == [
+        {
+            "type": "render_failed",
+            "conversation_id": "conv-fail",
+            "error": "preview exploded",
+            "stderr": "",
+        }
+    ]
