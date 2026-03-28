@@ -1,10 +1,7 @@
 import json
 
 from agents import Agent, Handoff, RunContextWrapper, RunHooks, Runner
-from dotenv import load_dotenv
 from pydantic import BaseModel
-
-load_dotenv(".env.local")
 
 
 class ManimAgentContext(BaseModel):
@@ -134,7 +131,7 @@ def instructions(ctx_wrapper: RunContextWrapper[ManimAgentContext], agent: Agent
 
 manim_generator = Agent(
     name="Manim Generator",
-    model="gpt-4o-mini",
+    model="gpt-5-mini",
     instructions=instructions,
     output_type=str,
 )
