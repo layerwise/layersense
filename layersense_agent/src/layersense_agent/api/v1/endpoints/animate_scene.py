@@ -23,7 +23,8 @@ async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
         json_example = json.dumps(json.load(f))
 
     context = ManimAgentContext(json_example=json_example)
-    user_prompt = inputs.prompt + "\n" + inputs.json_data
+    scene_json = inputs.scene.model_dump_json()
+    user_prompt = inputs.prompt + "\n" + scene_json
 
     result = await Runner.run(manim_generator, user_prompt, context=context)
     scene_code = strip_code_fences(result.final_output)
