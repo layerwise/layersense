@@ -43,8 +43,11 @@ agent-dev:
 
 # Run all tests with coverage
 test:
-    uv run --all-packages pytest
+    uv run --all-packages pytest -m "not smoke"
     npm --prefix layersense_frontend test
+
+smoke:
+    uv run --all-packages pytest tests/smoke/test_dev_stack_smoke.py -m smoke
 
 # Run type checks
 typecheck:
