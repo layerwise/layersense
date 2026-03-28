@@ -27,7 +27,7 @@ The primary user is a developer/researcher who wants to iterate quickly on mathe
 
 ```
 Browser (React + Excalidraw, port 3000)
-  │  POST /api/v1/animation {excalidraw_json, prompt}
+  │  POST /api/v1/animation {scene, prompt}
   ▼
 layersense_agent (FastAPI, port 8000)
   │  AI Agent (OpenAI Agents SDK, gpt-4o-mini)
@@ -73,7 +73,7 @@ and user IDE saves. Both paths are identical from the controller's perspective.
 ### `layersense_agent/` (FastAPI, port 8000)
 
 Endpoints:
-- `POST /api/v1/animation` — takes `{prompt: str, json_data: str}`
+- `POST /api/v1/animation` — takes `{prompt: str, scene: Excalidraw scene object}`
   1. Validate payload as `ExcalidrawScene` (Pydantic model already exists)
   2. Run AI agent via OpenAI Agents SDK → Manim Python code string
   3. Write `layersense_scenes/generated_<conversation_id>.py`
