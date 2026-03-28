@@ -66,7 +66,7 @@ Test commands that the docs present as current or recommended, when safe and ava
 
 Typical checks:
 
-- repo quality commands such as `just lint`, `just test`, `just check`
+- repo quality commands such as `just lint`, `just test`, `just verify_workspace`
 - documented frontend commands such as `npm --prefix layersense_frontend run build`
 - startup/health commands if they are central to the doc claim and safe to run
 
@@ -145,6 +145,7 @@ Run the strongest relevant commands you can safely justify from the current docs
 
 - `just lint`
 - `just test`
+- `just verify_workspace`
 
 If docs reference narrower commands as part of active guidance, run those too when feasible.
 
