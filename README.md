@@ -46,6 +46,17 @@ This starts:
 - `agent` at `http://localhost:8000`
 - `controller` at `http://localhost:8001`
 
+Run the dedicated smoke suite against an already-running local stack with:
+
+```bash
+just smoke
+```
+
+Notes:
+
+- `just smoke` is separate from `just test`.
+- It probes the real local service chain at `localhost:3000`, `localhost:8000`, and `localhost:8001`.
+
 Notes:
 
 - Export `OPENAI_API_KEY` in your shell before running `just docker`.

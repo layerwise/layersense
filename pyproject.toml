@@ -116,3 +116,4 @@ warn_return_any = true
 
 [tool.pytest.ini_options]
 testpaths = ["layersense_agent/tests", "layersense_controller/tests", "tests"]
+markers = ["smoke: black-box smoke tests against a running local stack"]
