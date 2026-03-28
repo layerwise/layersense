@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
@@ -10,6 +11,7 @@ from layersense_controller.render import RenderError, render_final, render_previ
 from layersense_controller.websocket_manager import manager
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class RenderRequest(BaseModel):
@@ -74,10 +76,12 @@ async def render(request: RenderRequest, background_tasks: BackgroundTasks) -> d
 
 async def _render_pipeline(scene_path: Path, content_hash: str, conversation_id: str) -> None:
     preview_cached, final_cached = is_cached(content_hash)
+    logger.info("render started for %s: %s", conversation_id, scene_path)
 
     try:
         if not preview_cached:
             preview_path = await render_preview(scene_path, content_hash)
+            logger.info("preview ready for %s: %s", conversation_id, preview_path)
             await manager.broadcast(
                 {
                     "type": "preview_ready",
@@ -88,6 +92,7 @@ async def _render_pipeline(scene_path: Path, content_hash: str, conversation_id:
 
         if not final_cached:
             final_path = await render_final(scene_path, content_hash)
+            logger.info("render ready for %s: %s", conversation_id, final_path)
             await manager.broadcast(
                 {
                     "type": "render_ready",
@@ -96,11 +101,28 @@ async def _render_pipeline(scene_path: Path, content_hash: str, conversation_id:
                 }
             )
     except RenderError as exc:
+        logger.warning(
+            "render failed for %s at %s: %s; stderr=%s",
+            conversation_id,
+            scene_path,
+            str(exc),
+            exc.stderr,
+        )
         await manager.broadcast(
             {
                 "type": "render_failed",
                 "conversation_id": conversation_id,
                 "error": str(exc),
                 "stderr": exc.stderr,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("render failed for %s", conversation_id)
+        await manager.broadcast(
+            {
+                "type": "render_failed",
+                "conversation_id": conversation_id,
+                "error": str(exc),
+                "stderr": "",
             }
         )
