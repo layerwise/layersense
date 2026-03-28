@@ -60,12 +60,13 @@ relative to each other.
 
 5. Writing the Code
 Finally, write a Manim scene that defines each shape, sets a color (using a default “black” in this case),
-and then plays the animations in the requested order.
+and then plays the animations in the requested order. While manim examples canonically import everything
+with `from manim import *`, for clarity and best practices, explicitly import only the necessary classes and functions.
 
 # The Manim Code
 
 ```python
-from manim import *
+from manim import Scene, Circle, Rectangle, VMobject, Create, GrowFromCenter, RIGHT, LEFT
 import numpy as np
 
 class ExcalidrawAnimation(Scene):
