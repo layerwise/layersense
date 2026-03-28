@@ -314,3 +314,4 @@ refactor: extract shared snapshot download logic
 ## Misc
 
 - You are never allowed to read a .env file.
+- You need to avoid commands that would print environment variables or secrets at all costs.
