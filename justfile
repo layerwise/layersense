@@ -17,23 +17,6 @@ default:
 setup:
     uv sync --all-packages
 
-# Run all tests with coverage
-test:
-    uv run --all-packages pytest
-
-# Run type checks
-typecheck:
-    uv run --all-packages mypy
-
-# Lint & format with ruff + black
-lint:
-    uv run --all-packages ruff check
-    uv run --all-packages black --check .
-    docker compose config
-
-format:
-    uv run --all-packages ruff check --fix
-
 # Start frontend dev server
 frontend-dev:
     npm --prefix layersense_frontend install
@@ -51,11 +34,36 @@ controller-dev:
 agent-dev:
     uv run --all-packages uvicorn layersense_agent.main:app --host 0.0.0.0 --port 8000
 
-verify_imports:
+
+# -------------------------
+
+# QA
+
+# -------------------------
+
+# Run all tests with coverage
+test:
+    uv run --all-packages pytest
+
+# Run type checks
+typecheck:
+    uv run --all-packages mypy
+
+# Lint & format with ruff + black
+lint:
+    uv run --all-packages ruff check
+    uv run --all-packages black --check .
+    docker compose config
+
+format:
+    uv run --all-packages ruff check --fix
+
+verify_workspace:
     uv sync --all-packages && uv run --all-packages python -c "import layersense_controller; import layersense_agent; import layersense_renderer; print('ok')"
 
+
 # Run all quality checks
-check: lint typecheck test
+check: lint typecheck test verify_workspace
 
 # -------------------------
 
