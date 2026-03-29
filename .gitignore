@@ -1,3 +1,7 @@
+# data and artifacts
+layersense_artifacts/
+layersense_scenes/
+
 # ignore worktrees
 .worktrees
 
@@ -7,9 +11,6 @@
 # environment variables and secrets
 .env
 .envrc
-
-# venv
-.venv_layersense
 
 # VSCode
 .vscode
