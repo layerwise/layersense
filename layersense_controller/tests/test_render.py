@@ -25,6 +25,20 @@ def test_parse_output_path_from_quoted_file_ready_line_with_spaces(tmp_path):
     assert parsed == rendered
 
 
+def test_parse_output_path_from_wrapped_rich_file_ready_line(tmp_path):
+    scene_path = Path("/scenes/smoke_controller_scene.py")
+    rendered = Path("/app/media/videos/smoke_controller_scene/480p15/GeneratedScene.mp4")
+    manim_output = """[03/28/26 18:07:26] INFO     File ready at
+                         '/app/media/videos/smoke_c
+                         ontroller_scene/480p15/Gen
+                         eratedScene.mp4'
+    """
+
+    parsed = _parse_output_path(manim_output, scene_path)
+
+    assert parsed == rendered
+
+
 def test_parse_output_path_fallback_chooses_latest_generated_scene(tmp_path, monkeypatch):
     scenes_dir = tmp_path / "layersense_scenes"
     monkeypatch.setattr("layersense_controller.render.settings.scenes_dir", scenes_dir)
@@ -55,6 +69,28 @@ def test_parse_output_path_fallback_supports_absolute_scene_path(tmp_path, monke
     scene_path = tmp_path / "project_b" / "scene.py"
     media_root = scene_path.parent / "media"
     expected = media_root / "videos" / "scene" / "480p15" / "GeneratedScene.mp4"
+    expected.parent.mkdir(parents=True)
+    expected.write_bytes(b"video")
+
+    parsed = _parse_output_path("no file line present", scene_path)
+
+    assert parsed == expected
+
+
+def test_parse_output_path_fallback_supports_absolute_scene_path_in_app_media(
+    tmp_path, monkeypatch
+):
+    scenes_dir = tmp_path / "layersense_scenes"
+    monkeypatch.setattr("layersense_controller.render.settings.scenes_dir", scenes_dir)
+
+    app_root = tmp_path / "app"
+    app_root.mkdir()
+    monkeypatch.chdir(app_root)
+
+    scene_path = Path("/scenes/smoke_controller_scene.py")
+    expected = (
+        app_root / "media" / "videos" / "smoke_controller_scene" / "480p15" / "GeneratedScene.mp4"
+    )
     expected.parent.mkdir(parents=True)
     expected.write_bytes(b"video")
 

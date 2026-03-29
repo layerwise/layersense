@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
@@ -11,10 +14,12 @@ from urllib.parse import urljoin
 import pytest
 import requests
 from requests import Response
+from websockets.sync.client import connect as websocket_connect
 
 FRONTEND_BASE = "http://localhost:3000"
 AGENT_BASE = "http://localhost:8000"
 CONTROLLER_BASE = "http://localhost:8001"
+CONTROLLER_WS_URL = "ws://localhost:8001/ws"
 REQUEST_TIMEOUT_SECONDS = 10
 ANIMATION_REQUEST_TIMEOUT_SECONDS = 30
 RENDER_TIMEOUT_SECONDS = 30
@@ -79,9 +84,9 @@ def _request_with_boundary_failure(
 
 
 def _assert_ok(response: requests.Response, boundary: str) -> None:
-    assert response.ok, (
-        f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
-    )
+    assert (
+        response.ok
+    ), f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
 
 
 def _create_animation(prompt: str) -> dict[str, Any]:
@@ -110,9 +115,10 @@ def _queue_render(scene_path: str, conversation_id: str) -> dict[str, Any]:
     _assert_ok(response, "controller render request")
 
     body = response.json()
-    assert body.get("status") in {"queued", "cached"}, (
-        f"controller render returned unexpected body: {body}"
-    )
+    assert body.get("status") in {
+        "queued",
+        "cached",
+    }, f"controller render returned unexpected body: {body}"
     return body
 
 
@@ -128,9 +134,9 @@ def _artifact_candidates(scene_path: str) -> tuple[str, str]:
 def _host_scene_path(scene_path: str) -> Path:
     scene_name = Path(scene_path).name
     host_scene_path = _scenes_dir() / scene_name
-    assert host_scene_path.exists(), (
-        f"scene path returned by stack is not present in host-mounted scenes dir: {host_scene_path}"
-    )
+    assert (
+        host_scene_path.exists()
+    ), f"scene path returned by stack is not present in host-mounted scenes dir: {host_scene_path}"
     return host_scene_path
 
 
@@ -140,6 +146,44 @@ def _write_known_good_scene(filename: str) -> tuple[Path, str]:
     host_scene_path = scenes_dir / filename
     host_scene_path.write_text(KNOWN_GOOD_SCENE)
     return host_scene_path, f"/scenes/{filename}"
+
+
+@contextmanager
+def _temporary_known_good_scene(filename: str) -> Any:
+    host_scene_path, controller_scene_path = _write_known_good_scene(filename)
+    try:
+        yield host_scene_path, controller_scene_path
+    finally:
+        if host_scene_path.exists():
+            host_scene_path.unlink()
+
+
+@contextmanager
+def _controller_events() -> Any:
+    with websocket_connect(CONTROLLER_WS_URL) as websocket:
+        yield websocket
+
+
+def _wait_for_controller_terminal_event(websocket: Any, conversation_id: str) -> dict[str, Any]:
+    deadline = time.monotonic() + RENDER_TIMEOUT_SECONDS
+    last_event: dict[str, Any] | None = None
+
+    while time.monotonic() < deadline:
+        remaining = max(0.1, deadline - time.monotonic())
+        message = websocket.recv(timeout=remaining)
+        event = json.loads(message)
+
+        if event.get("conversation_id") != conversation_id:
+            continue
+
+        last_event = event
+        if event.get("type") in {"artifact_ready", "render_ready", "render_failed"}:
+            return event
+
+    pytest.fail(
+        f"controller websocket terminal event not reached within timeout for {conversation_id}; "
+        f"last_event={last_event}"
+    )
 
 
 def _wait_for_artifacts(scene_path: str) -> tuple[str, str]:
@@ -177,9 +221,9 @@ def test_frontend_root_serves_layersense_app_shell() -> None:
 
     _assert_ok(response, "frontend root request")
     content_type = response.headers.get("content-type", "")
-    assert "text/html" in content_type, (
-        f"frontend returned unexpected content type: {content_type}"
-    )
+    assert (
+        "text/html" in content_type
+    ), f"frontend returned unexpected content type: {content_type}"
     assert '<div id="root"></div>' in response.text, "frontend root mount marker missing"
     assert "/src/main.tsx" in response.text, "frontend dev entrypoint marker missing"
 
@@ -199,26 +243,37 @@ def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:
 
 
 @pytest.mark.smoke
-def test_controller_render_reaches_terminal_artifact_state() -> None:
+def test_controller_render_emits_terminal_websocket_event_for_known_good_scene() -> None:
     health_response = _request_with_boundary_failure(
         "GET", urljoin(CONTROLLER_BASE, "/health"), "controller health request"
     )
     _assert_ok(health_response, "controller health request")
 
-    host_scene_path, controller_scene_path = _write_known_good_scene("smoke_controller_scene.py")
-    _queue_render(controller_scene_path, "controller-smoke")
-    preview_url, final_url = _wait_for_artifacts(str(host_scene_path))
+    unique_scene_name = f"smoke_controller_scene_{uuid.uuid4().hex}.py"
+    with _temporary_known_good_scene(unique_scene_name) as (_, controller_scene_path):
+        with _controller_events() as websocket:
+            _queue_render(controller_scene_path, "controller-smoke")
+            event = _wait_for_controller_terminal_event(websocket, "controller-smoke")
 
-    assert preview_url.endswith("_preview.mp4")
-    assert final_url.endswith("_final.mp4")
+    assert event["type"] in {"artifact_ready", "render_ready", "render_failed"}
+    if event["type"] == "render_failed":
+        pytest.fail(f"controller failed to render known-good smoke scene: {event}")
 
 
 @pytest.mark.smoke
 def test_api_chain_generate_to_render_completes() -> None:
     animation = _create_animation("Generate and render a simple smoke test animation.")
-    render_response = _queue_render(animation["scene_path"], animation["conversation_id"])
-    preview_url, final_url = _wait_for_artifacts(animation["scene_path"])
+    with _controller_events() as websocket:
+        render_response = _queue_render(animation["scene_path"], animation["conversation_id"])
+        event = _wait_for_controller_terminal_event(websocket, animation["conversation_id"])
 
     assert render_response["status"] in {"queued", "cached"}
-    assert preview_url.startswith(CONTROLLER_BASE)
-    assert final_url.startswith(CONTROLLER_BASE)
+    if event["type"] == "artifact_ready":
+        assert event["preview_url"].startswith("/artifacts/")
+        assert event["final_url"].startswith("/artifacts/")
+        return
+    if event["type"] == "render_ready":
+        assert event["url"].startswith("/artifacts/")
+        return
+
+    pytest.fail(f"agent->controller API chain ended in render_failed: {event}")

@@ -1,6 +1,7 @@
 import asyncio
 import re
 import shutil
+from itertools import chain
 from pathlib import Path
 
 from layersense_controller.cache import final_artifact, preview_artifact
@@ -36,22 +37,27 @@ async def _run_manim(scene_path: Path, quality_flag: str) -> Path:
 
 
 def _parse_output_path(manim_output: str, scene_path: Path) -> Path:
-    quoted_match = re.search(r"File ready at ['\"](.+?\.mp4)['\"]", manim_output)
-    if quoted_match:
-        return Path(quoted_match.group(1))
+    normalized_output = re.sub(r"\s+", " ", manim_output)
 
-    unquoted_match = re.search(r"File ready at\s+([^\s]+\.mp4)", manim_output)
+    quoted_match = re.search(r"File ready at\s+['\"](.+?\.mp4)['\"]", manim_output, re.DOTALL)
+    if quoted_match:
+        quoted_path = quoted_match.group(1)
+        if "\n" in quoted_path:
+            quoted_path = "".join(part.strip() for part in quoted_path.splitlines())
+        return Path(quoted_path)
+
+    unquoted_match = re.search(r"File ready at\s+([^\s]+\.mp4)", normalized_output)
     if unquoted_match:
         return Path(unquoted_match.group(1))
 
     if scene_path.is_absolute():
-        media_roots = [scene_path.parent / "media"]
+        media_roots = [Path.cwd() / "media", scene_path.parent / "media"]
     else:
         media_roots = [settings.scenes_dir / scene_path.parent / "media"]
 
     candidates = [
         candidate
-        for media_root in media_roots
+        for media_root in dict.fromkeys(chain(media_roots))
         for candidate in media_root.rglob("GeneratedScene.mp4")
     ]
     if candidates:
