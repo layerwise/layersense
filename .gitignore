@@ -1,6 +1,6 @@
 # data and artifacts
 layersense_artifacts/
-layersense_scenes/
+layersense_scenes/generated_scenes/
 
 # ignore worktrees
 .worktrees
