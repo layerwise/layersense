@@ -6,7 +6,7 @@
 
 **Architecture:** The `layersense_agent` (FastAPI) translates Excalidraw JSON + prompt into a Manim `.py` file written to a shared `layersense_scenes/` volume. A file-watcher inside `layersense_controller` detects writes, hashes the file, and triggers a two-pass Manim render (low-quality preview first, then HD). The browser receives render events over WebSocket and displays the video. The Excalidraw canvas and video player live in `layersense_frontend/` (React + Vite).
 
-**Tech Stack:** Python 3.12, FastAPI, OpenAI Agents SDK (`openai-agents`), watchdog, React 18, TypeScript, Vite, `@excalidraw/excalidraw`, Docker Compose, `manimcommunity/manim:latest`
+**Tech Stack:** Python 3.14, FastAPI, OpenAI Agents SDK (`openai-agents`), watchdog, React 18, TypeScript, Vite, `@excalidraw/excalidraw`, Docker Compose, `manimcommunity/manim:latest`
 
 **Design reference:** `docs/plans/2026-03-07-layersense-architecture-design.md`
 
@@ -1012,7 +1012,7 @@ git commit -m "feat(controller): add Dockerfile based on manimcommunity/manim"
 ### Step 10.1 — Write the Dockerfile
 
 ```dockerfile
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
