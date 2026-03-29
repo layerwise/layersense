@@ -63,7 +63,7 @@ format:
     uv run --all-packages ruff check --fix
 
 verify_workspace:
-    uv sync --all-packages && uv run --all-packages python -c "import layersense_controller; import layersense_agent; import layersense_renderer; print('ok')"
+    uv sync --all-packages && uv run --all-packages python -c "import layersense_controller; import layersense_agent; print('ok')"
 
 
 # Run all quality checks

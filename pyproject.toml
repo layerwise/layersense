@@ -17,7 +17,6 @@ classifiers = [
 # Core runtime dependencies
 dependencies = [
     "layersense_agent",
-    "layersense_renderer",
     "layersense_controller",
     "dotenv==0.9.9",
     "fastapi[standard]==0.116.1",
@@ -58,23 +57,18 @@ dev = [
 
 [tool.uv.sources]
 layersense_agent = { workspace = true }
-layersense_renderer = { workspace = true }
 layersense_controller = { workspace = true }
 layersense_scenes = { workspace = true }
 
 [tool.uv.workspace]
-members = [
-    "layersense_agent",
-    "layersense_renderer",
-    "layersense_controller",
-    "layersense_scenes",
-]
+members = ["layersense_agent", "layersense_controller", "layersense_scenes"]
 
 # ---- Tooling Configurations ----
 
 [tool.ruff]
 line-length = 99
 target-version = "py312"
+extend-exclude = ["layersense_scenes"]
 # lint.extend-select = ["B", "C4", "I", "UP", "W"]
 
 lint.select = [
@@ -104,6 +98,7 @@ convention = "google"
 [tool.black]
 line-length = 99
 target-version = ["py312"]
+extend-exclude = "^/layersense_scenes/"
 
 [tool.mypy]
 python_version = "3.12"
