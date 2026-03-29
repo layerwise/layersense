@@ -11,9 +11,11 @@ COPY pyproject.toml .
 COPY README.md .
 COPY src/ src/
 
-# Install our package (no dev deps in prod)
+# Install the controller into Manim's prebuilt virtualenv.
+# The base image already contains Manim and its native/system dependencies,
+# so resolving against /opt/venv reuses that stack instead of rebuilding it.
 USER root
-RUN uv pip install --system --no-cache .
+RUN uv pip install --python /opt/venv/bin/python --no-cache .
 
 ENV LAYERSENSE_SCENES_DIR=/scenes
 ENV LAYERSENSE_ARTIFACTS_DIR=/artifacts
