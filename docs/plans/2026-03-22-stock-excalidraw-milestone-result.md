@@ -102,8 +102,8 @@ Outcome: this list is fully closed.
 ## Full-Stack Outlook (Next Steps, Non-UI-Focused)
 
 1. Full E2E smoke validation against running agent + controller + watcher
-   - Verify generate -> render queue -> preview -> final across real services.
-   - Validate event ordering and conversation filtering in multi-tab scenarios.
+   - Dedicated `just smoke` coverage now exists for the local stack.
+   - Remaining work is to make the controller and agent paths pass reliably under that smoke suite.
 
 2. Watcher/controller hardening pass
    - Handle non-2xx `/render` responses explicitly.

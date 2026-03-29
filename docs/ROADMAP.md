@@ -70,6 +70,7 @@ This file is the docs entrypoint for collaborators. It gives a fast overview of 
 The likely next phase is not another UI-only pass, but a full-stack reliability phase:
 
 - prove the full generate -> render -> preview/final loop in real service startup conditions
+- use the `just smoke` suite as the primary local verification path for that loop
 - harden watcher/controller interactions and cache behavior
 - improve failure-path handling and developer startup/testing ergonomics
 - keep documentation aligned as the implementation catches up with the architecture

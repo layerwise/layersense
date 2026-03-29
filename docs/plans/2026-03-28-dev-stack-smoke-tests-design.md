@@ -61,7 +61,7 @@ This probe is intended to catch contract regressions like the earlier `422` fail
 - Use a known-good scene path
 - `POST /render` with a real payload
 - Assert `queued` or `cached`
-- Poll for observable terminal state by checking artifact paths or artifact URLs until preview/final output appears
+- Wait for observable terminal state via controller WebSocket events, then verify artifact URLs when success events are emitted
 
 This probe is intended to catch queueing paths that never produce artifacts or visible outcomes.
 
@@ -70,7 +70,7 @@ This probe is intended to catch queueing paths that never produce artifacts or v
 - Chain the real backend flow:
   1. create scene through agent
   2. queue render through controller
-  3. poll for preview/final artifact readiness
+  3. wait for controller terminal WebSocket events and verify artifact URLs on success
 - Keep this API-driven instead of browser-driven for the first version to reduce flakiness while still covering the deep failure paths that mattered in practice
 
 ## Test Design Principles

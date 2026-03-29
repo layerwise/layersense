@@ -12,7 +12,7 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 - `layersense_frontend/` contains a stock-Excalidraw React app with prompt input, generate flow, and preview/final render UI.
 - `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload and writes generated Manim scene files.
 - `layersense_controller/` can watch scenes, queue renders, cache artifacts, and broadcast render events.
-- The full end-to-end workflow is partially implemented but still needs reliability validation and hardening before it should be treated as production-ready.
+- The full end-to-end workflow is partially implemented, and the repo now includes dedicated smoke tests, but real render reliability issues still remain before it should be treated as production-ready.
 
 ## Current Architecture
 
@@ -56,6 +56,7 @@ Notes:
 
 - `just smoke` is separate from `just test`.
 - It probes the real local service chain at `localhost:3000`, `localhost:8000`, and `localhost:8001`.
+- It is intended to surface real runtime regressions, so a failing smoke run can still indicate useful progress if it points at a concrete controller or agent bug.
 
 Notes:
 

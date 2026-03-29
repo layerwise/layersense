@@ -21,12 +21,13 @@ When producing code, use modern Python and honour the existing code style. Use `
 
 In a root `justfile`, the following commands are available:
 - `just setup`: Sync all packages and install dependencies
-- `just test`: Run all tests with coverage
+- `just test`: Run the default automated test suite (excludes smoke tests)
+- `just smoke`: Run black-box smoke tests against an already-running local stack
 - `just typecheck`: Run mypy type checks
 - `just lint`: Run ruff and black checks
 - `just format`: Run ruff and black fixes
 - `just check`: Run all quality checks (lint, typecheck, test)
-- `just verify_imports`: Verify that all packages can be imported without errors (use after adding new dependencies or making changes that could affect imports)
+- `just verify_workspace`: Verify workspace imports without running the full test suite
 
 ## Role
 
@@ -84,7 +85,8 @@ than no docs.
 
 ## Autonomous linting and testing
 - Verify the codebase by running `just lint` and `just test` in the project or workspace root.
-- Always format the code in the end via `cargo fmt`
+- Use `just smoke` when you need live-stack verification against the local running services.
+- Format Python code with `uv run --all-packages black` when `just format` is insufficient.
 - When encountering lint warnings: STOP and present options to the user
   - Do not automatically add #[allow] directives or similar suppression
   - Present tradeoffs and get explicit approval first
