@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 
 import './App.css'
-import { createAnimation, queueRender } from './api'
+import { CONTROLLER_BASE, createAnimation, queueRender } from './api'
 import { Canvas, type CanvasHandle } from './components/Canvas'
 import { VideoPlayer } from './components/VideoPlayer'
 import { useRenderEvents } from './hooks/useRenderEvents'
@@ -26,6 +26,14 @@ const normalizeError = (error: unknown): string => {
   return 'Unexpected error'
 }
 
+const normalizeArtifactUrl = (url: string): string => {
+  if (url.startsWith('/')) {
+    return `${CONTROLLER_BASE}${url}`
+  }
+
+  return url
+}
+
 function App() {
   const [prompt, setPrompt] = useState('')
   const [status, setStatus] = useState<AppStatus>('idle')
@@ -37,19 +45,19 @@ function App() {
   const canvasRef = useRef<CanvasHandle>(null)
 
   const handleArtifactReady = useCallback((payload: { previewUrl: string; finalUrl: string }) => {
-    setPreviewUrl(payload.previewUrl)
-    setFinalUrl(payload.finalUrl)
+    setPreviewUrl(normalizeArtifactUrl(payload.previewUrl))
+    setFinalUrl(normalizeArtifactUrl(payload.finalUrl))
     setStatus('complete')
     setError(null)
   }, [])
 
   const handlePreviewReady = useCallback((url: string) => {
-    setPreviewUrl(url)
+    setPreviewUrl(normalizeArtifactUrl(url))
     setStatus('waiting_for_final')
   }, [])
 
   const handleRenderReady = useCallback((url: string) => {
-    setFinalUrl(url)
+    setFinalUrl(normalizeArtifactUrl(url))
     setStatus('complete')
     setError(null)
   }, [])
