@@ -7,6 +7,7 @@ class MockWebSocket {
   static instances: MockWebSocket[] = []
 
   readonly url: string
+  closeCalls = 0
   private listeners = new Map<string, Set<EventListener>>()
 
   constructor(url: string) {
@@ -28,8 +29,22 @@ class MockWebSocket {
     listeners.delete(listener)
   }
 
+  listenerCount(event: string): number {
+    return this.listeners.get(event)?.size ?? 0
+  }
+
   close(): void {
-    // no-op
+    this.closeCalls += 1
+  }
+
+  emitClose(): void {
+    const listeners = this.listeners.get('close')
+    if (!listeners) {
+      return
+    }
+
+    const event = {} as CloseEvent
+    listeners.forEach((listener) => listener(event as unknown as Event))
   }
 
   emitMessage(data: unknown): void {
@@ -56,6 +71,7 @@ class MockWebSocket {
 describe('useRenderEvents', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
+    vi.useRealTimers()
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
   })
 
@@ -115,5 +131,94 @@ describe('useRenderEvents', () => {
     socket.emitRaw('{bad json')
 
     expect(onPreviewReady).not.toHaveBeenCalled()
+  })
+
+  it('keeps the same websocket instance when conversationId changes', () => {
+    const { rerender } = renderHook(
+      ({ conversationId }) => useRenderEvents({ conversationId }),
+      { initialProps: { conversationId: 'conv-1' } },
+    )
+
+    const initialSocket = MockWebSocket.instances[0]
+    rerender({ conversationId: 'conv-2' })
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+    expect(MockWebSocket.instances[0]).toBe(initialSocket)
+  })
+
+  it('reconnects after a short delay when the socket closes unexpectedly', () => {
+    vi.useFakeTimers()
+
+    renderHook(() => useRenderEvents({ conversationId: 'conv-1' }))
+
+    const initialSocket = MockWebSocket.instances[0]
+    initialSocket.emitClose()
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+
+    vi.advanceTimersByTime(999)
+    expect(MockWebSocket.instances).toHaveLength(1)
+
+    vi.advanceTimersByTime(1)
+    expect(MockWebSocket.instances).toHaveLength(2)
+    expect(MockWebSocket.instances[1]).not.toBe(initialSocket)
+    expect(MockWebSocket.instances[1]?.url).toBe('ws://localhost:8001/ws')
+  })
+
+  it('removes listeners from a closed socket and cancels reconnect on unmount', () => {
+    vi.useFakeTimers()
+
+    const { unmount } = renderHook(() => useRenderEvents({ conversationId: 'conv-1' }))
+
+    const initialSocket = MockWebSocket.instances[0]
+    expect(initialSocket.listenerCount('message')).toBe(1)
+    expect(initialSocket.listenerCount('close')).toBe(1)
+
+    initialSocket.emitClose()
+
+    expect(initialSocket.listenerCount('message')).toBe(0)
+    expect(initialSocket.listenerCount('close')).toBe(0)
+
+    unmount()
+    vi.runAllTimers()
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+  })
+
+  it('closes the active socket on unmount', () => {
+    const { unmount } = renderHook(() => useRenderEvents({ conversationId: 'conv-1' }))
+
+    const socket = MockWebSocket.instances[0]
+    unmount()
+
+    expect(socket.closeCalls).toBe(1)
+  })
+
+  it('ignores payloads missing required event-specific fields', () => {
+    const onArtifactReady = vi.fn()
+    const onPreviewReady = vi.fn()
+    const onRenderReady = vi.fn()
+    const onRenderFailed = vi.fn()
+
+    renderHook(() =>
+      useRenderEvents({
+        conversationId: 'conv-1',
+        onArtifactReady,
+        onPreviewReady,
+        onRenderReady,
+        onRenderFailed,
+      }),
+    )
+
+    const socket = MockWebSocket.instances[0]
+    socket.emitMessage({ type: 'artifact_ready', conversation_id: 'conv-1', preview_url: '/preview.mp4' })
+    socket.emitMessage({ type: 'preview_ready', conversation_id: 'conv-1' })
+    socket.emitMessage({ type: 'render_ready', conversation_id: 'conv-1' })
+    socket.emitMessage({ type: 'render_failed', conversation_id: 'conv-1' })
+
+    expect(onArtifactReady).not.toHaveBeenCalled()
+    expect(onPreviewReady).not.toHaveBeenCalled()
+    expect(onRenderReady).not.toHaveBeenCalled()
+    expect(onRenderFailed).not.toHaveBeenCalled()
   })
 })

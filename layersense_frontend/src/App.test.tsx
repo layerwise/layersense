@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { CONTROLLER_BASE } from './api'
 import App from './App'
 
 const mockCreateAnimation = vi.fn()
@@ -15,10 +16,15 @@ const hookState = {
   },
 }
 
-vi.mock('./api', () => ({
-  createAnimation: (...args: unknown[]) => mockCreateAnimation(...args),
-  queueRender: (...args: unknown[]) => mockQueueRender(...args),
-}))
+vi.mock('./api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api')>()
+
+  return {
+    ...actual,
+    createAnimation: (...args: unknown[]) => mockCreateAnimation(...args),
+    queueRender: (...args: unknown[]) => mockQueueRender(...args),
+  }
+})
 
 vi.mock('./components/Canvas', () => ({
   Canvas: ({ ref }: { ref: React.Ref<{ getSceneSnapshot: () => unknown }> }) => {
@@ -157,6 +163,27 @@ describe('App', () => {
     })
   })
 
+  it('uses controller base URL for cached artifact video sources', async () => {
+    mockCreateAnimation.mockResolvedValue({ conversation_id: 'conv-1', scene_path: '/tmp/scene.py' })
+    mockQueueRender.mockResolvedValue({ status: 'cached' })
+
+    const { getByRole, getByTestId } = render(<App />)
+    fireEvent.click(getByRole('button', { name: 'Generate' }))
+
+    await waitFor(() => expect(hookState.conversationId).toBe('conv-1'))
+    act(() => {
+      hookState.handlers.onArtifactReady?.({
+        previewUrl: '/artifacts/preview.mp4',
+        finalUrl: '/artifacts/final.mp4',
+      })
+    })
+
+    await waitFor(() => {
+      const video = getByTestId('render-video') as HTMLVideoElement
+      expect(video.getAttribute('src')).toBe(`${CONTROLLER_BASE}/artifacts/final.mp4`)
+    })
+  })
+
   it('applies preview then final when websocket events arrive', async () => {
     mockCreateAnimation.mockResolvedValue({ conversation_id: 'conv-1', scene_path: '/tmp/scene.py' })
     mockQueueRender.mockResolvedValue({ status: 'queued' })
@@ -170,7 +197,7 @@ describe('App', () => {
     })
     await waitFor(() => {
       const preview = getByTestId('render-video') as HTMLVideoElement
-      expect(preview.getAttribute('src')).toContain('/preview.mp4')
+      expect(preview.getAttribute('src')).toBe(`${CONTROLLER_BASE}/preview.mp4`)
     })
 
     act(() => {
@@ -178,7 +205,7 @@ describe('App', () => {
     })
     await waitFor(() => {
       const final = getByTestId('render-video') as HTMLVideoElement
-      expect(final.getAttribute('src')).toContain('/final.mp4')
+      expect(final.getAttribute('src')).toBe(`${CONTROLLER_BASE}/final.mp4`)
     })
   })
 

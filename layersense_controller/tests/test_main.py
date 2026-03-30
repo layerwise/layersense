@@ -1,8 +1,11 @@
+import importlib
+
 from fastapi.testclient import TestClient
-from layersense_controller.main import app
 
 
 def test_app_health_endpoint_returns_ok() -> None:
+    from layersense_controller.main import app
+
     with TestClient(app) as client:
         response = client.get("/health")
 
@@ -10,7 +13,7 @@ def test_app_health_endpoint_returns_ok() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_lifespan_starts_and_stops_watcher(monkeypatch) -> None:
+def test_default_app_lifespan_does_not_start_watcher(monkeypatch) -> None:
     events: list[str] = []
 
     class FakeObserver:
@@ -24,9 +27,13 @@ def test_lifespan_starts_and_stops_watcher(monkeypatch) -> None:
         events.append("start")
         return FakeObserver()
 
-    monkeypatch.setattr("layersense_controller.main.start_watcher", fake_start_watcher)
+    monkeypatch.setattr("layersense_controller.watcher.start_watcher", fake_start_watcher)
 
-    with TestClient(app):
-        assert events == ["start"]
+    import layersense_controller.main as main_module
 
-    assert events == ["start", "stop", "join"]
+    main_module = importlib.reload(main_module)
+
+    with TestClient(main_module.app):
+        assert events == []
+
+    assert events == []

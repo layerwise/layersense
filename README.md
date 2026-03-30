@@ -20,9 +20,11 @@ The project currently targets a simple local-developer architecture:
 
 1. Browser frontend captures a structured Excalidraw `scene` snapshot and prompt.
 2. `layersense_agent` generates Manim code and writes a scene file.
-3. `layersense_controller` watches for scene file changes.
+3. Frontend explicitly queues a render with `layersense_controller`.
 4. Controller renders preview/final artifacts and serves them over HTTP.
 5. Frontend listens for render events over WebSocket and updates the player.
+
+The controller watcher code remains in the repo for future manual-edit rerender workflows, but it is not part of the default proof-of-concept browser loop.
 
 ## What This Repo Is Not Yet
 
