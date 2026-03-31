@@ -40,26 +40,28 @@ Run: `uv run --all-packages pytest layersense_controller/tests/test_render.py -q
 
 Expected: PASS
 
-### Task 2: Add committed Manim config files for preview and final renders
+### Task 2: Add committed packaged Manim config files for preview and final renders
 
 **Files:**
-- Create: `manim-preview.cfg`
-- Create: `manim-final.cfg`
+- Create: `layersense_controller/src/layersense_controller/resources/manim-preview.cfg`
+- Create: `layersense_controller/src/layersense_controller/resources/manim-final.cfg`
+- Modify: `layersense_controller/pyproject.toml`
 - Modify: `layersense_controller/tests/test_render.py`
 
 **Step 1: Write the failing test**
 
-- Add tests proving the renderer points at the committed preview/final config files and that those configs align with `layersense_artifacts/scenes` as the artifact-rooted media base.
+- Add tests proving the renderer resolves packaged preview/final config resources and that those configs align with `layersense_artifacts/scenes` as the artifact-rooted media base.
 
 **Step 2: Run test to verify it fails**
 
 Run: `uv run --all-packages pytest layersense_controller/tests/test_render.py -q`
 
-Expected: FAIL because the config files do not exist yet and the renderer cannot reference them.
+Expected: FAIL because the packaged config resources do not exist yet and the renderer cannot reference them.
 
 **Step 3: Write minimal implementation**
 
-- Create the two config files using the exported `manim.cfg` format as reference.
+- Create the two config files under package resources using the exported `manim.cfg` format as reference.
+- Include them in the built wheel so `uv pip install .` carries them into local and Docker runtime environments.
 - Set explicit output-related directories under `layersense_artifacts/scenes` for both preview and final render paths.
 - Keep the two configs as similar as possible, differing only where preview/final settings genuinely differ.
 

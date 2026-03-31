@@ -1,11 +1,12 @@
 import asyncio
 import shutil
+from importlib.resources import as_file, files
 from pathlib import Path
 
 from layersense_controller.cache import final_artifact, preview_artifact
 from layersense_controller.config import settings
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 
 
 class RenderError(Exception):
@@ -15,7 +16,12 @@ class RenderError(Exception):
 
 
 def _config_file_path(render_kind: str) -> Path:
-    return REPO_ROOT / "layersense_controller" / f"manim-{render_kind}.cfg"
+    with _config_resource(render_kind) as config_path:
+        return Path(config_path)
+
+
+def _config_resource(render_kind: str):
+    return as_file(files("layersense_controller.resources").joinpath(f"manim-{render_kind}.cfg"))
 
 
 def _scene_path_relative_to_scenes_dir(scene_path: Path) -> Path:
@@ -84,7 +90,7 @@ async def _run_manim(scene_path: Path, render_kind: str) -> Path:
             output_file_path.as_posix(),
             str(scene_path),
             "GeneratedScene",
-            cwd=REPO_ROOT,
+            cwd=PACKAGE_ROOT,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

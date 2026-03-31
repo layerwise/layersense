@@ -1,14 +1,23 @@
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from layersense_controller.render import (
-    REPO_ROOT,
     RenderError,
+    _config_file_path,
     _raw_output_path,
     render_final,
     render_preview,
 )
+
+
+@contextmanager
+def fake_config_resource(base_dir: Path, filename: str):
+    config_path = base_dir / filename
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("[CLI]\nmedia_dir = ./layersense_artifacts/scenes\n")
+    yield config_path
 
 
 @pytest.mark.asyncio
@@ -54,12 +63,12 @@ async def test_render_preview_uses_preview_config_and_nested_output_file_for_pro
     assert captured_args is not None
     assert captured_kwargs is not None
     assert "--config_file" in captured_args
-    assert str(REPO_ROOT / "manim-preview.cfg") in captured_args
+    assert str(_config_file_path("preview")) in captured_args
     assert "--media_dir" in captured_args
     assert str(artifacts_dir / "scenes") in captured_args
     assert "--output_file" in captured_args
     assert "demo_project/preview/shots/scene_preview" in captured_args
-    assert Path(captured_kwargs["cwd"]) == Path(__file__).resolve().parents[2]
+    assert Path(captured_kwargs["cwd"]) == Path(__file__).resolve().parents[1]
     assert target == artifacts_dir / "abc123_preview.mp4"
     assert target.read_bytes() == b"preview"
 
@@ -101,27 +110,25 @@ async def test_render_final_uses_final_config_and_root_fallback_output_file(tmp_
 
     assert captured_args is not None
     assert "--config_file" in captured_args
-    assert str(REPO_ROOT / "manim-final.cfg") in captured_args
+    assert str(_config_file_path("final")) in captured_args
     assert "--output_file" in captured_args
     assert "_root/final/scene_final" in captured_args
     assert target == artifacts_dir / "abc123_final.mp4"
     assert target.read_bytes() == b"final"
 
 
-@pytest.mark.parametrize(
-    ("render_kind", "expected_config_name"),
-    [("preview", "manim-preview.cfg"), ("final", "manim-final.cfg")],
-)
-def test_render_config_files_exist_at_repo_root(render_kind, expected_config_name):
-    config_path = REPO_ROOT / expected_config_name
+@pytest.mark.parametrize("render_kind", ["preview", "final"])
+def test_config_file_path_resolves_packaged_resource(render_kind):
+    config_path = _config_file_path(render_kind)
 
     assert config_path.is_file()
-    assert config_path == REPO_ROOT / f"manim-{render_kind}.cfg"
+    assert config_path.name == f"manim-{render_kind}.cfg"
+    assert "layersense_controller" in str(config_path)
 
 
 @pytest.mark.parametrize("render_kind", ["preview", "final"])
 def test_render_config_files_use_artifact_rooted_media_paths(render_kind):
-    config_path = REPO_ROOT / f"manim-{render_kind}.cfg"
+    config_path = _config_file_path(render_kind)
     config_text = config_path.read_text()
 
     assert "media_dir = ./layersense_artifacts/scenes" in config_text
@@ -136,7 +143,7 @@ def test_render_config_files_use_artifact_rooted_media_paths(render_kind):
 def test_render_config_files_write_movie_to_render_raw_output_path(
     tmp_path, monkeypatch, render_kind
 ):
-    config_path = REPO_ROOT / f"manim-{render_kind}.cfg"
+    config_path = _config_file_path(render_kind)
     temp_repo_root = tmp_path / "repo"
     temp_repo_root.mkdir()
     copied_config_path = temp_repo_root / config_path.name
@@ -282,10 +289,23 @@ def test_raw_output_path_keeps_nested_directories_within_project(tmp_path, monke
 
 @pytest.mark.parametrize("render_kind", ["preview", "final"])
 def test_render_config_files_use_output_file_to_isolate_partial_movie_dirs(render_kind):
-    config_path = REPO_ROOT / f"manim-{render_kind}.cfg"
+    config_path = _config_file_path(render_kind)
     config_text = config_path.read_text()
 
     assert "partial_movie_dir = {video_dir}/partial_movie_files/{output_file}" in config_text
+
+
+def test_config_file_path_does_not_depend_on_repo_root(monkeypatch, tmp_path):
+    resource_dir = tmp_path / "resources"
+
+    monkeypatch.setattr(
+        "layersense_controller.render._config_resource",
+        lambda render_kind: fake_config_resource(resource_dir, f"manim-{render_kind}.cfg"),
+    )
+
+    config_path = _config_file_path("preview")
+
+    assert config_path == resource_dir / "manim-preview.cfg"
 
 
 @pytest.mark.asyncio

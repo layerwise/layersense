@@ -6,7 +6,7 @@ Make Manim rendering deterministic and storage-oriented by replacing implicit ou
 
 ## Decisions
 
-1. Use two committed Manim config files: `manim-preview.cfg` and `manim-final.cfg`.
+1. Use two committed Manim config defaults packaged inside `layersense_controller`: `manim-preview.cfg` and `manim-final.cfg`.
 2. The controller passes `--config_file` and `--output_file` to every Manim render invocation.
 3. Raw Manim outputs live under the existing `layersense_artifacts/scenes` root, not inside `layersense_controller`.
 4. Raw output names follow the scene filename stem with `_preview` and `_final` suffixes.
@@ -37,7 +37,7 @@ This preserves current cache semantics while making the lower-level render stora
 
 ## Manim Configs
 
-Add:
+Add packaged defaults under `layersense_controller/src/layersense_controller/resources/`:
 
 - `manim-preview.cfg`
 - `manim-final.cfg`
@@ -50,7 +50,7 @@ Each config explicitly defines output-related fields such as:
 - `log_dir`
 - any related temp/text/Tex directories needed for consistency
 
-The configs should point into `layersense_artifacts/scenes`, matching both the mounted Docker layout and the local repo layout.
+The configs should point into `layersense_artifacts/scenes`, matching both the mounted Docker layout and the local repo layout, while the controller resolves them from installed package resources rather than repo-root file paths.
 
 ## Render Invocation
 

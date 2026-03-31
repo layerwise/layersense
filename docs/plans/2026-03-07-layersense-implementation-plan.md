@@ -494,6 +494,8 @@ async def render_final(scene_path: Path, content_hash: str) -> Path:
 
 ### Step 5.2 — Write test_render.py
 
+Historical note: the render implementation below reflects the original March 7 plan and is no longer current. The live controller now uses explicit packaged Manim config resources, explicit nested `--output_file` paths, and deterministic artifact-rooted output discovery instead of parsing `GeneratedScene.mp4` paths from stdout.
+
 ```python
 import asyncio
 from pathlib import Path

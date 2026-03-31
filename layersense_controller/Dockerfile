@@ -10,8 +10,6 @@ WORKDIR /app
 COPY pyproject.toml .
 COPY README.md .
 COPY src/ src/
-COPY manim-final.cfg .
-COPY manim-preview.cfg .
 
 # Install the controller into Manim's prebuilt virtualenv.
 # The base image already contains Manim and its native/system dependencies,

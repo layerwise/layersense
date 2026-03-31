@@ -27,6 +27,7 @@ The project currently targets a simple local-developer architecture:
 The controller watcher code remains in the repo for future manual-edit rerender workflows, but it is not part of the default proof-of-concept browser loop.
 
 Raw Manim scene renders now live under `./layersense_artifacts/scenes/<project-or-_root>/<preview|final>/...`.
+The preview/final Manim config defaults are packaged inside `layersense_controller` itself under `src/layersense_controller/resources/`, so local and Docker runs use the same installed config resources instead of repo-root config files.
 Controller-served browser artifacts remain the cache-facing hashed files at `./layersense_artifacts/<hash>_preview.mp4` and `./layersense_artifacts/<hash>_final.mp4`.
 
 ## What This Repo Is Not Yet
