@@ -30,6 +30,34 @@ Raw Manim scene renders now live under `./layersense_artifacts/scenes/<project-o
 The preview/final Manim config defaults are packaged inside `layersense_controller` itself under `src/layersense_controller/resources/`, so local and Docker runs use the same installed config resources instead of repo-root config files.
 Controller-served browser artifacts remain the cache-facing hashed files at `./layersense_artifacts/<hash>_preview.mp4` and `./layersense_artifacts/<hash>_final.mp4`.
 
+## Render Layout
+
+The controller shells out to Manim with:
+
+- packaged config defaults from `layersense_controller.resources`
+- `--config_file <materialized packaged config path>`
+- `--media_dir <artifacts_dir>/scenes`
+- nested `--output_file` paths based on scene location
+
+Example raw artifact tree:
+
+```text
+layersense_artifacts/
+  scenes/
+    generated_scenes/
+      preview/
+        generated_123_preview.mp4
+      final/
+        generated_123_final.mp4
+    _root/
+      preview/
+        standalone_preview.mp4
+  abc123_preview.mp4
+  abc123_final.mp4
+```
+
+The `scenes/` subtree is the raw Manim-owned layout. The top-level hashed files are the controller-facing cache artifacts served back to the browser.
+
 ## What This Repo Is Not Yet
 
 - Not a stable production Docker deployment target.

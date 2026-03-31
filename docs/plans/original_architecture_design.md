@@ -1,5 +1,7 @@
 # AI-augmented Visual Manim Animator with Distributed Manim Rendering Pipeline
 
+Historical note: this document captures an earlier distributed-rendering direction with Redis, worker containers, and watcher-first automation. It is useful for rationale, but it is not the current operational architecture. Use `README.md` and `docs/ROADMAP.md` as the source of truth for the current local dev stack and render loop.
+
 This project provides an automated and scalable rendering pipeline for **Manim Community** animations to undergird an Excalidraw-powered frontend for intuitive,
 visual animation design with a Manim backend.
 

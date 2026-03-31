@@ -1,11 +1,17 @@
 # Docs Hygiene Follow-Ups
 
+Date: 2026-03-31
+
+Supersedes: `docs/2026-03-28-docs-hygiene-followups.md`
+
 ## What Was Audited
 
 - `README.md`
 - `docs/ROADMAP.md`
+- `docs/2026-03-28-docs-hygiene-followups.md`
 - current controller render implementation
 - current Manim config files
+- historical architecture and milestone-result docs that still shaped contributor expectations
 
 ## What Was Patched
 
@@ -15,12 +21,14 @@
 - Updated `docs/ROADMAP.md` near-term focus to reflect the explicit artifact layout now used by the controller.
 - Updated active Manim-config docs to reflect that preview/final config defaults are now packaged inside `layersense_controller`, not stored as repo-root runtime files.
 - Marked the original March 7 render-path plan section as historical so it no longer reads like current implementation guidance.
+- Added a concrete raw artifact tree example and a concise packaged Manim config contract section to `README.md`.
+- Added a clear historical warning to `docs/plans/original_architecture_design.md`.
+- Updated `docs/plans/2026-03-22-stock-excalidraw-milestone-result.md` so its next-step notes no longer describe watcher-first validation as the default loop.
+- Consolidated the earlier 2026-03-28 docs follow-up report into this file.
 
 ## Remaining Stale Or Risky Items
 
-- Several historical plans in `docs/plans/` still describe older artifact lookup behavior based on stdout parsing or generic `GeneratedScene.mp4` discovery.
-- No dedicated doc yet explains the exact packaged Manim config contract (`layersense_controller.resources`, `--config_file`, `--media_dir`, nested `--output_file`) in one place.
-- `README.md` still describes the local stack at a high level; it does not yet include a concrete example of the new raw artifact tree.
+- Several historical plans in `docs/plans/` still describe older artifact lookup behavior based on stdout parsing or generic `GeneratedScene.mp4` discovery. They are now safer because the most misleading sections are relabeled, but they still should not be treated as current implementation docs.
 
 ## Needs Code Or Product Decisions
 
