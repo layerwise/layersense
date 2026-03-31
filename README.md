@@ -11,7 +11,7 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 
 - `layersense_frontend/` contains a stock-Excalidraw React app with prompt input, generate flow, and preview/final render UI.
 - `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload and writes generated Manim scene files.
-- `layersense_controller/` can watch scenes, queue renders, cache artifacts, and broadcast render events.
+- `layersense_controller/` can watch scenes, queue renders, render Manim outputs with explicit config files, cache artifacts, and broadcast render events.
 - The full end-to-end workflow is partially implemented, and the repo now includes dedicated smoke tests, but real render reliability issues still remain before it should be treated as production-ready.
 
 ## Current Architecture
@@ -25,6 +25,9 @@ The project currently targets a simple local-developer architecture:
 5. Frontend listens for render events over WebSocket and updates the player.
 
 The controller watcher code remains in the repo for future manual-edit rerender workflows, but it is not part of the default proof-of-concept browser loop.
+
+Raw Manim scene renders now live under `./layersense_artifacts/scenes/<project-or-_root>/<preview|final>/...`.
+Controller-served browser artifacts remain the cache-facing hashed files at `./layersense_artifacts/<hash>_preview.mp4` and `./layersense_artifacts/<hash>_final.mp4`.
 
 ## What This Repo Is Not Yet
 
@@ -68,3 +71,4 @@ Notes:
 - Shared host-mounted directories are used for scene and artifact exchange:
   - `./layersense_scenes`
   - `./layersense_artifacts`
+- Controller render requests must point at scene files inside the configured `layersense_scenes` directory.

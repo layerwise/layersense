@@ -72,6 +72,7 @@ The likely next phase is not another UI-only pass, but a full-stack reliability 
 - prove the full generate -> render -> preview/final loop in real service startup conditions
 - use the `just smoke` suite as the primary local verification path for that loop
 - keep the default proof-of-concept path frontend-triggered (`frontend -> /render -> controller -> websocket`), while treating watcher-driven rerender as deferred follow-up work
+- keep Manim output layout explicit and storage-oriented under `layersense_artifacts/scenes/<project-or-_root>/<preview|final>/...`, while preserving hashed cache artifacts for controller/browser consumption
 - harden watcher/controller interactions and cache behavior
 - improve failure-path handling and developer startup/testing ergonomics
 - keep documentation aligned as the implementation catches up with the architecture

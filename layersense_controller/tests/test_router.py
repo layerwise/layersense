@@ -38,11 +38,12 @@ def test_render_returns_404_for_missing_file(tmp_path, monkeypatch) -> None:
 
 
 def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> None:
-    scenes_dir = tmp_path / "scenes"
+    scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
     artifacts_dir.mkdir()
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
 
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
@@ -88,6 +89,24 @@ def test_render_returns_404_for_directory_path(tmp_path) -> None:
     assert response.json()["detail"] == "Scene file not found"
 
 
+def test_render_returns_400_for_scene_outside_configured_scenes_dir(tmp_path, monkeypatch) -> None:
+    scenes_dir = tmp_path / "layersense_scenes"
+    scenes_dir.mkdir()
+    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
+    client = _build_client()
+
+    off_root_scene = tmp_path / "outside.py"
+    off_root_scene.write_text("print('outside')\n")
+
+    response = client.post(
+        "/render",
+        json={"scene_path": str(off_root_scene), "conversation_id": "conv-1"},
+    )
+
+    assert response.status_code == 400
+    assert "configured scenes_dir" in response.json()["detail"]
+
+
 def test_artifact_returns_404_for_directory(tmp_path, monkeypatch) -> None:
     artifacts_dir = tmp_path / "artifacts"
     artifacts_dir.mkdir()
@@ -103,10 +122,13 @@ def test_artifact_returns_404_for_directory(tmp_path, monkeypatch) -> None:
 
 def test_render_queues_and_broadcasts_preview_and_final(tmp_path, monkeypatch, caplog) -> None:
     artifacts_dir = tmp_path / "artifacts"
+    scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir.mkdir()
+    scenes_dir.mkdir()
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
 
-    scene_path = tmp_path / "queued_scene.py"
+    scene_path = scenes_dir / "queued_scene.py"
     scene_path.write_text("print('queued')\n")
     content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
     preview_target = artifacts_dir / f"{content_hash}_preview.mp4"

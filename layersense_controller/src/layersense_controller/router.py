@@ -7,7 +7,12 @@ from pydantic import BaseModel
 
 from layersense_controller.cache import final_artifact, hash_file, is_cached, preview_artifact
 from layersense_controller.config import settings
-from layersense_controller.render import RenderError, render_final, render_preview
+from layersense_controller.render import (
+    RenderError,
+    _scene_path_relative_to_scenes_dir,
+    render_final,
+    render_preview,
+)
 from layersense_controller.websocket_manager import manager
 
 router = APIRouter()
@@ -48,6 +53,11 @@ async def render(request: RenderRequest, background_tasks: BackgroundTasks) -> d
 
     if not scene_path.exists() or not scene_path.is_file():
         raise HTTPException(status_code=404, detail="Scene file not found")
+
+    try:
+        _scene_path_relative_to_scenes_dir(scene_path)
+    except RenderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     content_hash = hash_file(scene_path)
     preview_cached, final_cached = is_cached(content_hash)
