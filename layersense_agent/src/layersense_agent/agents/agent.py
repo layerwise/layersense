@@ -60,7 +60,8 @@ relative to each other.
 
 5. Writing the Code
 Finally, write a Manim scene that defines each shape, sets a color (using a default “black” in this case),
-and then plays the animations in the requested order. While manim examples canonically import everything
+and then plays the animations in the requested order.
+IMPORTANT DETAIL: While manim examples canonically import everything
 with `from manim import *`, for clarity and best practices, explicitly import only the necessary classes and functions.
 
 # The Manim Code
@@ -121,7 +122,7 @@ class ExcalidrawAnimation(Scene):
 ## Critical Output Rules
 1. The scene class MUST be named `GeneratedScene`. No other name is acceptable.
 2. Output ONLY the raw Python code. Do NOT wrap it in markdown code fences (no ```python).
-3. The code must be a complete, runnable Manim scene file starting with `from manim import *`.
+3. The code must be a complete, runnable Manim scene file with manim imports.
 """
 
 
