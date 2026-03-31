@@ -15,7 +15,7 @@ class RenderError(Exception):
 
 
 def _config_file_path(render_kind: str) -> Path:
-    return REPO_ROOT / f"manim-{render_kind}.cfg"
+    return REPO_ROOT / "layersense_controller" / f"manim-{render_kind}.cfg"
 
 
 def _scene_path_relative_to_scenes_dir(scene_path: Path) -> Path:
