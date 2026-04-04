@@ -1,0 +1,43 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach: Agent",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5678
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/layersense_agent/src",
+          "remoteRoot": "/app/src"
+        }
+      ],
+      "justMyCode": true
+    },
+    {
+      "name": "Attach: Controller",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5679
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/layersense_controller/src",
+          "remoteRoot": "/app/src"
+        }
+      ],
+      "justMyCode": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Attach: Full dev stack",
+      "configurations": ["Attach: Agent", "Attach: Controller"]
+    }
+  ]
+}
