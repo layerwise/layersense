@@ -25,6 +25,10 @@ frontend-dev:
 docker:
     docker compose up --build
 
+docker-debug:
+    # this overlays the debug configuration on top of the base configuration
+    docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+
 docker-down:
     docker compose down
 
