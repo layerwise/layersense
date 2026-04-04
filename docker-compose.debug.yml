@@ -1,0 +1,55 @@
+services:
+  agent:
+    build:
+      context: ./layersense_agent
+      dockerfile: Dockerfile
+      target: debug
+    command:
+      [
+        "python",
+        "-m",
+        "debugpy",
+        "--listen",
+        "0.0.0.0:5678",
+        "-m",
+        "uvicorn",
+        "layersense_agent.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    environment:
+      PYTHONPATH: /app/src
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./layersense_agent/src:/app/src
+      - ./layersense_agent/assets:/app/assets
+
+  controller:
+    build:
+      context: ./layersense_controller
+      dockerfile: Dockerfile
+      target: debug
+    command:
+      [
+        "/opt/venv/bin/python",
+        "-m",
+        "debugpy",
+        "--listen",
+        "0.0.0.0:5679",
+        "-m",
+        "uvicorn",
+        "layersense_controller.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+      ]
+    environment:
+      PYTHONPATH: /app/src
+    ports:
+      - "5679:5679"
+    volumes:
+      - ./layersense_controller/src:/app/src

@@ -86,6 +86,19 @@ Run the dedicated smoke suite against an already-running local stack with:
 just smoke
 ```
 
+For containerized Python debugging in VS Code, start the stack with the debug overlay:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+```
+
+That keeps the normal stack unchanged, and additionally exposes:
+
+- `agent` debugpy on `localhost:5678`
+- `controller` debugpy on `localhost:5679`
+
+Then use the VS Code launch config `Attach: Full dev stack` to attach to both Python services.
+
 Notes:
 
 - `just smoke` is separate from `just test`.
