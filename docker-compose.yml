@@ -1,5 +1,6 @@
 services:
   frontend:
+    container_name: layersense_frontend
     build:
       context: ./layersense_frontend
     ports:
@@ -14,6 +15,7 @@ services:
       - controller
 
   agent:
+    container_name: layersense_agent
     build:
       context: ./layersense_agent
     ports:
@@ -26,6 +28,7 @@ services:
       - ./layersense_scenes:/scenes
 
   controller:
+    container_name: layersense_controller
     build:
       context: ./layersense_controller
     ports:
