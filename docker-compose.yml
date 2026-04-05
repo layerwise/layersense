@@ -23,9 +23,9 @@ services:
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       CODESTRAL_API_KEY: ${CODESTRAL_API_KEY}
-      SCENES_DIR: /scenes
+      LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
     volumes:
-      - ./layersense_scenes:/scenes
+      - ./layersense_artifacts/code:/layersense_artifacts/code
 
   controller:
     container_name: layersense_controller
@@ -34,11 +34,11 @@ services:
     ports:
       - "8001:8001"
     environment:
-      LAYERSENSE_SCENES_DIR: /scenes
-      LAYERSENSE_ARTIFACTS_DIR: /artifacts
+      LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
+      LAYERSENSE_ARTIFACTS_DIR: /layersense_artifacts
     volumes:
-      - ./layersense_scenes:/scenes
-      - ./layersense_artifacts:/artifacts
+      - ./layersense_artifacts/code:/layersense_artifacts/code
+      - ./layersense_artifacts:/layersense_artifacts
 
 volumes:
   frontend_node_modules:

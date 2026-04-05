@@ -11,8 +11,6 @@ COPY assets/ assets/
 
 RUN uv pip install --system --no-cache .
 
-ENV SCENES_DIR=/scenes
-
 FROM base AS debug
 
 RUN uv pip install --system --no-cache debugpy

@@ -17,9 +17,6 @@ COPY src/ src/
 USER root
 RUN uv pip install --python /opt/venv/bin/python --no-cache .
 
-ENV LAYERSENSE_SCENES_DIR=/scenes
-ENV LAYERSENSE_ARTIFACTS_DIR=/artifacts
-
 FROM base AS debug
 
 RUN uv pip install --python /opt/venv/bin/python --no-cache debugpy

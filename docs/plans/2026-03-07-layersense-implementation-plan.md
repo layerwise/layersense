@@ -15,7 +15,7 @@
 ## Conventions
 
 - **Scene class name:** The AI agent always names the scene class `GeneratedScene`. Enforced in the system prompt.
-- **Scenes directory:** Configurable via `SCENES_DIR` env var. Default: `./layersense_scenes` (host), `/scenes` (Docker).
+- **Scenes directory:** Configurable via `LAYERSENSE_SCENES_DIR` env var. Default: `./layersense_scenes` (host), `/scenes` (Docker).
 - **Artifacts directory:** Configurable via `ARTIFACTS_DIR` env var. Default: `./layersense_artifacts` (host), `/artifacts` (Docker).
 - **Scene filename:** `generated_<conversation_id>.py`
 - **Artifact filename:** `<sha256>_preview.mp4`, `<sha256>_final.mp4`
@@ -95,7 +95,7 @@ from layersense_agent.models.base import AnimationCreatedResponse, AnimationInpu
 
 router = APIRouter()
 
-SCENES_DIR = Path(os.getenv("SCENES_DIR", "./layersense_scenes"))
+LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_scenes"))
 EXAMPLE_JSON_PATH = Path("assets/example_json/example_circle_rectangle_freeform.json")
 
 
@@ -113,8 +113,8 @@ async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
     result = await Runner.run(manim_generator, user_prompt, context=context)
     scene_code = strip_code_fences(result.final_output)
 
-    SCENES_DIR.mkdir(parents=True, exist_ok=True)
-    scene_path = SCENES_DIR / f"generated_{conversation_id}.py"
+    LAYERSENSE_SCENES_DIR.mkdir(parents=True, exist_ok=True)
+    scene_path = LAYERSENSE_SCENES_DIR / f"generated_{conversation_id}.py"
     scene_path.write_text(scene_code)
 
     return AnimationCreatedResponse(
@@ -983,9 +983,6 @@ COPY src/ src/
 # Install our package (no dev deps in prod)
 RUN uv pip install --system --no-cache .
 
-ENV LAYERSENSE_SCENES_DIR=/scenes
-ENV LAYERSENSE_ARTIFACTS_DIR=/artifacts
-
 EXPOSE 8001
 
 CMD ["uvicorn", "layersense_controller.main:app", "--host", "0.0.0.0", "--port", "8001"]
@@ -1025,8 +1022,6 @@ COPY src/ src/
 COPY assets/ assets/
 
 RUN uv pip install --system --no-cache .
-
-ENV SCENES_DIR=/scenes
 
 EXPOSE 8000
 
@@ -1422,7 +1417,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - SCENES_DIR=/scenes
+      - LAYERSENSE_SCENES_DIR=/scenes
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - scenes:/scenes

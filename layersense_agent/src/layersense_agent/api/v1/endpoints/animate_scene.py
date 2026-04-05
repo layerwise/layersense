@@ -10,7 +10,7 @@ from layersense_agent.models.base import AnimationCreatedResponse, AnimationInpu
 
 router = APIRouter()
 
-SCENES_DIR = Path(os.getenv("SCENES_DIR", "./layersense_scenes"))
+LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_scenes"))
 EXAMPLE_JSON_PATH = Path("assets/example_json/example_circle_rectangle_freeform.json")
 
 
@@ -27,10 +27,11 @@ async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
     user_prompt = inputs.prompt + "\n" + scene_json
 
     result = await Runner.run(manim_generator, user_prompt, context=context)
+    # TODO: add error handling for failed generation, invalid code, etc.
     scene_code = strip_code_fences(result.final_output)
 
-    SCENES_DIR.mkdir(parents=True, exist_ok=True)
-    scene_path = SCENES_DIR / f"generated_{conversation_id}.py"
+    LAYERSENSE_SCENES_DIR.mkdir(parents=True, exist_ok=True)
+    scene_path = LAYERSENSE_SCENES_DIR / f"generated_{conversation_id}.py"
     scene_path.write_text(scene_code)
 
     return AnimationCreatedResponse(

@@ -23,12 +23,14 @@ def assert_animation_created(response_json: dict[str, str]) -> Path:
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("SCENES_DIR", str(tmp_path))
+    monkeypatch.setenv("LAYERSENSE_SCENES_DIR", str(tmp_path))
     mock_result = MagicMock()
     mock_result.final_output = FAKE_CODE
     with patch("layersense_agent.api.v1.endpoints.animate_scene.Runner") as mock_runner:
         mock_runner.run = AsyncMock(return_value=mock_result)
-        with patch("layersense_agent.api.v1.endpoints.animate_scene.SCENES_DIR", tmp_path):
+        with patch(
+            "layersense_agent.api.v1.endpoints.animate_scene.LAYERSENSE_SCENES_DIR", tmp_path
+        ):
             with TestClient(app) as c:
                 yield c, tmp_path, mock_runner
 
