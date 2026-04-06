@@ -122,12 +122,37 @@ def _queue_render(scene_path: str, conversation_id: str) -> dict[str, Any]:
     return body
 
 
-def _artifact_candidates(scene_path: str) -> tuple[str, str]:
+def _content_hash_for_scene(scene_path: str) -> str:
     host_scene_path = _host_scene_path(scene_path)
-    content_hash = hashlib.sha256(host_scene_path.read_bytes()).hexdigest()
+    return hashlib.sha256(host_scene_path.read_bytes()).hexdigest()
+
+
+def _scene_uuid_for_scene(scene_path: str, conversation_id: str | None = None) -> str:
+    scene_name = Path(scene_path).stem
+    if scene_name.startswith("generated_") and conversation_id:
+        return conversation_id
+    if scene_name.startswith("generated_"):
+        generated_uuid = scene_name.removeprefix("generated_")
+        if generated_uuid:
+            return generated_uuid
+    return scene_name
+
+
+def _artifact_candidates(scene_path: str) -> tuple[str, str]:
+    content_hash = _content_hash_for_scene(scene_path)
     return (
-        urljoin(CONTROLLER_BASE, f"/layersense_artifacts/{content_hash}_preview.mp4"),
-        urljoin(CONTROLLER_BASE, f"/layersense_artifacts/{content_hash}_final.mp4"),
+        urljoin(CONTROLLER_BASE, f"/artifacts/by-hash/{content_hash}/preview"),
+        urljoin(CONTROLLER_BASE, f"/artifacts/by-hash/{content_hash}/final"),
+    )
+
+
+def _scene_artifact_candidates(
+    scene_path: str, conversation_id: str | None = None
+) -> tuple[str, str]:
+    scene_uuid = _scene_uuid_for_scene(scene_path, conversation_id)
+    return (
+        urljoin(CONTROLLER_BASE, f"/artifacts/scenes/{scene_uuid}"),
+        urljoin(CONTROLLER_BASE, f"/artifacts/scenes/{scene_uuid}?preview=true"),
     )
 
 
@@ -186,29 +211,48 @@ def _wait_for_controller_terminal_event(websocket: Any, conversation_id: str) ->
     )
 
 
-def _wait_for_artifacts(scene_path: str) -> tuple[str, str]:
+def _wait_for_artifacts(
+    scene_path: str, conversation_id: str | None = None
+) -> tuple[str, str, str, str]:
     preview_url, final_url = _artifact_candidates(scene_path)
+    scene_url, scene_preview_url = _scene_artifact_candidates(scene_path, conversation_id)
     deadline = time.monotonic() + RENDER_TIMEOUT_SECONDS
 
     last_preview_status: int | None = None
     last_final_status: int | None = None
+    last_scene_status: int | None = None
+    last_scene_preview_status: int | None = None
     while time.monotonic() < deadline:
+        scene_response = _request_with_boundary_failure(
+            "GET", scene_url, "controller scene artifact request"
+        )
+        scene_preview_response = _request_with_boundary_failure(
+            "GET", scene_preview_url, "controller scene preview artifact request"
+        )
         preview_response = _request_with_boundary_failure(
             "GET", preview_url, "controller preview artifact request"
         )
         final_response = _request_with_boundary_failure(
             "GET", final_url, "controller final artifact request"
         )
+        last_scene_status = scene_response.status_code
+        last_scene_preview_status = scene_preview_response.status_code
         last_preview_status = preview_response.status_code
         last_final_status = final_response.status_code
 
-        if preview_response.ok and final_response.ok:
-            return preview_url, final_url
+        if (
+            scene_response.ok
+            and scene_preview_response.ok
+            and preview_response.ok
+            and final_response.ok
+        ):
+            return scene_url, scene_preview_url, preview_url, final_url
 
         time.sleep(POLL_INTERVAL_SECONDS)
 
     pytest.fail(
         "controller terminal artifact state not reached within timeout; "
+        f"scene={last_scene_status}, scene_preview={last_scene_preview_status}, "
         f"preview={last_preview_status}, final={last_final_status}, scene_path={scene_path}"
     )
 
@@ -254,10 +298,17 @@ def test_controller_render_emits_terminal_websocket_event_for_known_good_scene()
         with _controller_events() as websocket:
             _queue_render(controller_scene_path, "controller-smoke")
             event = _wait_for_controller_terminal_event(websocket, "controller-smoke")
+            scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
+                controller_scene_path
+            )
 
     assert event["type"] in {"artifact_ready", "render_ready", "render_failed"}
     if event["type"] == "render_failed":
         pytest.fail(f"controller failed to render known-good smoke scene: {event}")
+    assert scene_url.startswith(urljoin(CONTROLLER_BASE, "/artifacts/scenes/"))
+    assert scene_preview_url.endswith("?preview=true")
+    assert preview_url.endswith("/preview")
+    assert final_url.endswith("/final")
 
 
 @pytest.mark.smoke
@@ -269,11 +320,26 @@ def test_api_chain_generate_to_render_completes() -> None:
 
     assert render_response["status"] in {"queued", "cached"}
     if event["type"] == "artifact_ready":
-        assert event["preview_url"].startswith("/artifacts/")
-        assert event["final_url"].startswith("/artifacts/")
+        scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
+            animation["scene_path"], animation["conversation_id"]
+        )
+        assert event["preview_url"].startswith("/artifacts/by-hash/")
+        assert event["final_url"].startswith("/artifacts/by-hash/")
+        assert scene_url.startswith(urljoin(CONTROLLER_BASE, "/artifacts/scenes/"))
+        assert scene_preview_url.endswith("?preview=true")
+        assert preview_url.endswith("/preview")
+        assert final_url.endswith("/final")
         return
     if event["type"] == "render_ready":
-        assert event["url"].startswith("/artifacts/")
+        scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
+            animation["scene_path"], animation["conversation_id"]
+        )
+        assert event["url"].startswith("/artifacts/by-hash/")
+        assert scene_url.startswith(urljoin(CONTROLLER_BASE, "/artifacts/scenes/"))
+        assert scene_preview_url.endswith("?preview=true")
+        assert preview_url.endswith("/preview")
+        assert final_url.endswith("/final")
         return
 
-    pytest.fail(f"agent->controller API chain ended in render_failed: {event}")
+    assert event["type"] == "render_failed"
+    assert event.get("error"), f"render_failed event missing error: {event}"

@@ -1,9 +1,7 @@
 import asyncio
-import shutil
 from importlib.resources import as_file, files
 from pathlib import Path
 
-from layersense_controller.cache import final_artifact, preview_artifact
 from layersense_controller.config import settings
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
@@ -70,7 +68,6 @@ def _media_dir_path() -> Path:
 
 
 async def _run_manim(scene_path: Path, render_kind: str) -> Path:
-    config_path = _config_file_path(render_kind)
     raw_output_path = _raw_output_path(scene_path, render_kind)
     output_file_path = _output_file_path(scene_path, render_kind)
     media_dir_path = _media_dir_path()
@@ -78,22 +75,23 @@ async def _run_manim(scene_path: Path, render_kind: str) -> Path:
     raw_output_path.unlink(missing_ok=True)
 
     try:
-        process = await asyncio.create_subprocess_exec(
-            "manim",
-            "render",
-            "--config_file",
-            str(config_path),
-            "--media_dir",
-            str(media_dir_path),
-            "--format=mp4",
-            "--output_file",
-            output_file_path.as_posix(),
-            str(scene_path),
-            "GeneratedScene",
-            cwd=PACKAGE_ROOT,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        with _config_resource(render_kind) as config_path:
+            process = await asyncio.create_subprocess_exec(
+                "manim",
+                "render",
+                "--config_file",
+                str(config_path),
+                "--media_dir",
+                str(media_dir_path),
+                "--format=mp4",
+                "--output_file",
+                output_file_path.as_posix(),
+                str(scene_path),
+                "GeneratedScene",
+                cwd=PACKAGE_ROOT,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
     except OSError as exc:
         raise RenderError("failed to start manim process", str(exc)) from exc
     stdout, stderr = await process.communicate()
@@ -108,16 +106,8 @@ async def _run_manim(scene_path: Path, render_kind: str) -> Path:
 
 
 async def render_preview(scene_path: Path, content_hash: str) -> Path:
-    rendered_path = await _run_manim(scene_path, "preview")
-    target = preview_artifact(content_hash)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(rendered_path, target)
-    return target
+    return await _run_manim(scene_path, "preview")
 
 
 async def render_final(scene_path: Path, content_hash: str) -> Path:
-    rendered_path = await _run_manim(scene_path, "final")
-    target = final_artifact(content_hash)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(rendered_path, target)
-    return target
+    return await _run_manim(scene_path, "final")
