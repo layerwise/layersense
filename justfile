@@ -65,6 +65,7 @@ lint:
 
 format:
     uv run --all-packages ruff check --fix
+    uv run --all-packages black .
 
 verify_workspace:
     uv sync --all-packages && uv run --all-packages python -c "import layersense_controller; import layersense_agent; print('ok')"
