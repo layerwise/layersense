@@ -54,7 +54,7 @@ def _scenes_dir() -> Path:
     override = os.getenv("LAYERSENSE_SMOKE_SCENES_DIR")
     if override:
         return Path(override)
-    return _repo_root() / "layersense_scenes"
+    return _repo_root() / "layersense_artifacts" / "code"
 
 
 def _get_json(url: str) -> requests.Response:
@@ -84,9 +84,9 @@ def _request_with_boundary_failure(
 
 
 def _assert_ok(response: requests.Response, boundary: str) -> None:
-    assert (
-        response.ok
-    ), f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
+    assert response.ok, (
+        f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
+    )
 
 
 def _create_animation(prompt: str) -> dict[str, Any]:
@@ -126,17 +126,17 @@ def _artifact_candidates(scene_path: str) -> tuple[str, str]:
     host_scene_path = _host_scene_path(scene_path)
     content_hash = hashlib.sha256(host_scene_path.read_bytes()).hexdigest()
     return (
-        urljoin(CONTROLLER_BASE, f"/artifacts/{content_hash}_preview.mp4"),
-        urljoin(CONTROLLER_BASE, f"/artifacts/{content_hash}_final.mp4"),
+        urljoin(CONTROLLER_BASE, f"/layersense_artifacts/{content_hash}_preview.mp4"),
+        urljoin(CONTROLLER_BASE, f"/layersense_artifacts/{content_hash}_final.mp4"),
     )
 
 
 def _host_scene_path(scene_path: str) -> Path:
     scene_name = Path(scene_path).name
     host_scene_path = _scenes_dir() / scene_name
-    assert (
-        host_scene_path.exists()
-    ), f"scene path returned by stack is not present in host-mounted scenes dir: {host_scene_path}"
+    assert host_scene_path.exists(), (
+        f"scene path returned by stack is not present in host-mounted scenes dir: {host_scene_path}"
+    )
     return host_scene_path
 
 
@@ -145,7 +145,7 @@ def _write_known_good_scene(filename: str) -> tuple[Path, str]:
     scenes_dir.mkdir(parents=True, exist_ok=True)
     host_scene_path = scenes_dir / filename
     host_scene_path.write_text(KNOWN_GOOD_SCENE)
-    return host_scene_path, f"/scenes/{filename}"
+    return host_scene_path, f"/layersense_artifacts/code/{filename}"
 
 
 @contextmanager
@@ -221,9 +221,9 @@ def test_frontend_root_serves_layersense_app_shell() -> None:
 
     _assert_ok(response, "frontend root request")
     content_type = response.headers.get("content-type", "")
-    assert (
-        "text/html" in content_type
-    ), f"frontend returned unexpected content type: {content_type}"
+    assert "text/html" in content_type, (
+        f"frontend returned unexpected content type: {content_type}"
+    )
     assert '<div id="root"></div>' in response.text, "frontend root mount marker missing"
     assert "/src/main.tsx" in response.text, "frontend dev entrypoint marker missing"
 

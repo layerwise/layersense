@@ -15,8 +15,8 @@
 ## Conventions
 
 - **Scene class name:** The AI agent always names the scene class `GeneratedScene`. Enforced in the system prompt.
-- **Scenes directory:** Configurable via `LAYERSENSE_SCENES_DIR` env var. Default: `./layersense_scenes` (host), `/scenes` (Docker).
-- **Artifacts directory:** Configurable via `ARTIFACTS_DIR` env var. Default: `./layersense_artifacts` (host), `/artifacts` (Docker).
+- **Scenes directory:** Configurable via `LAYERSENSE_SCENES_DIR` env var. Default: `./layersense_artifacts/code` (host), `/scenes` (Docker).
+- **Artifacts directory:** Configurable via `LAYERSENSE_ARTIFACTS_DIR` env var. Default: `./layersense_artifacts` (host), `/artifacts` (Docker).
 - **Scene filename:** `generated_<conversation_id>.py`
 - **Artifact filename:** `<sha256>_preview.mp4`, `<sha256>_final.mp4`
 - **Port map:** agent=8000, controller=8001, frontend=3000
@@ -95,7 +95,7 @@ from layersense_agent.models.base import AnimationCreatedResponse, AnimationInpu
 
 router = APIRouter()
 
-LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_scenes"))
+LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_artifacts/code"))
 EXAMPLE_JSON_PATH = Path("assets/example_json/example_circle_rectangle_freeform.json")
 
 
@@ -283,7 +283,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    scenes_dir: Path = Path("./layersense_scenes")
+    scenes_dir: Path = Path("./layersense_artifacts/code")
     artifacts_dir: Path = Path("./layersense_artifacts")
     host: str = "0.0.0.0"
     port: int = 8001
@@ -1533,7 +1533,7 @@ Expected within ~2 minutes: video player updates to HD video, status = "Render c
 
 ### Step 16.7 — IDE edit loop
 
-1. Open `./layersense_scenes/generated_<id>.py` in your local IDE.
+1. Open `./layersense_artifacts/code/generated_<id>.py` in your local IDE.
 2. Add `self.wait(2)` after the last animation.
 3. Save the file.
 

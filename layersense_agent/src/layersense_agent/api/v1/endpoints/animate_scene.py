@@ -10,7 +10,7 @@ from layersense_agent.models.base import AnimationCreatedResponse, AnimationInpu
 
 router = APIRouter()
 
-LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_scenes"))
+LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_artifacts/code"))
 EXAMPLE_JSON_PATH = Path("assets/example_json/example_circle_rectangle_freeform.json")
 
 

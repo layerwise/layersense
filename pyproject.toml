@@ -58,10 +58,9 @@ dev = [
 [tool.uv.sources]
 layersense_agent = { workspace = true }
 layersense_controller = { workspace = true }
-layersense_scenes = { workspace = true }
 
 [tool.uv.workspace]
-members = ["layersense_agent", "layersense_controller", "layersense_scenes"]
+members = ["layersense_agent", "layersense_controller"]
 
 # ---- Tooling Configurations ----
 

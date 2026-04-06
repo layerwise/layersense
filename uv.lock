@@ -7,7 +7,6 @@ members = [
     "layersense",
     "layersense-agent",
     "layersense-controller",
-    "layersense-scenes",
 ]
 
 [[package]]
@@ -969,17 +968,6 @@ requires-dist = [
     { name = "pydantic-settings", specifier = "==2.10.1" },
     { name = "watchdog", specifier = "==6.0.0" },
 ]
-
-[[package]]
-name = "layersense-scenes"
-version = "0.1.0"
-source = { editable = "layersense_scenes" }
-dependencies = [
-    { name = "manim" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "manim", specifier = "==0.20.1" }]
 
 [[package]]
 name = "manim"

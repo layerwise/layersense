@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    scenes_dir: Path = Path("./layersense_scenes")
+    scenes_dir: Path = Path("./layersense_artifacts/code")
     artifacts_dir: Path = Path("./layersense_artifacts")
     host: str = "0.0.0.0"
     port: int = 8001

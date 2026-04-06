@@ -111,6 +111,6 @@ Notes:
 - Export `CODESTRAL_API_KEY` in your shell before running `just docker`
 - The current compose stack intentionally omits Redis because the implemented local flow does not use it.
 - Shared host-mounted directories are used for scene and artifact exchange:
-  - `./layersense_scenes`
+  - `./layersense_artifacts/code`
   - `./layersense_artifacts`
 - Controller render requests must point at scene files inside the configured `layersense_scenes` directory.
