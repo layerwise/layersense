@@ -69,8 +69,12 @@ async def test_render_preview_uses_preview_config_and_nested_output_file_for_pro
     assert "--output_file" in captured_args
     assert "demo_project/preview/shots/scene_preview" in captured_args
     assert Path(captured_kwargs["cwd"]) == Path(__file__).resolve().parents[1]
-    assert target == artifacts_dir / "abc123_preview.mp4"
+    assert (
+        target
+        == artifacts_dir / "scenes" / "demo_project" / "preview" / "shots" / "scene_preview.mp4"
+    )
     assert target.read_bytes() == b"preview"
+    assert not (artifacts_dir / "abc123_preview.mp4").exists()
 
 
 @pytest.mark.asyncio
@@ -113,8 +117,9 @@ async def test_render_final_uses_final_config_and_root_fallback_output_file(tmp_
     assert str(_config_file_path("final")) in captured_args
     assert "--output_file" in captured_args
     assert "_root/final/scene_final" in captured_args
-    assert target == artifacts_dir / "abc123_final.mp4"
+    assert target == artifacts_dir / "scenes" / "_root" / "final" / "scene_final.mp4"
     assert target.read_bytes() == b"final"
+    assert not (artifacts_dir / "abc123_final.mp4").exists()
 
 
 @pytest.mark.parametrize("render_kind", ["preview", "final"])
@@ -220,7 +225,9 @@ async def test_render_preview_uses_deterministic_raw_output_path(tmp_path, monke
 
     target = await render_preview(scene_path, "abc123")
 
+    assert target == expected_raw_output
     assert target.read_bytes() == b"preview"
+    assert not (artifacts_dir / "abc123_preview.mp4").exists()
 
 
 @pytest.mark.asyncio
@@ -306,6 +313,59 @@ def test_config_file_path_does_not_depend_on_repo_root(monkeypatch, tmp_path):
     config_path = _config_file_path("preview")
 
     assert config_path == resource_dir / "manim-preview.cfg"
+
+
+@pytest.mark.asyncio
+async def test_run_manim_uses_config_resource_within_live_context(tmp_path, monkeypatch):
+    resource_dir = tmp_path / "resources"
+    config_path = resource_dir / "manim-preview.cfg"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("[CLI]\nmedia_dir = ./layersense_artifacts/scenes\n")
+
+    scene_path = tmp_path / "layersense_scenes" / "scene.py"
+    scene_path.parent.mkdir(parents=True)
+    scene_path.write_text("print('x')\n")
+    artifacts_dir = tmp_path / "artifacts"
+    monkeypatch.setattr("layersense_controller.render.settings.artifacts_dir", artifacts_dir)
+    monkeypatch.setattr(
+        "layersense_controller.render.settings.scenes_dir", tmp_path / "layersense_scenes"
+    )
+
+    @contextmanager
+    def ephemeral_resource():
+        yield config_path
+        config_path.unlink(missing_ok=True)
+
+    captured_args: tuple[str, ...] | None = None
+    expected_raw_output = _raw_output_path(scene_path, "preview")
+    expected_raw_output.parent.mkdir(parents=True, exist_ok=True)
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            expected_raw_output.write_bytes(b"preview")
+            return (b"", b"")
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        nonlocal captured_args
+        captured_args = args
+        config_index = args.index("--config_file") + 1
+        assert Path(args[config_index]).exists()
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "layersense_controller.render._config_resource", lambda _kind: ephemeral_resource()
+    )
+    monkeypatch.setattr(
+        "layersense_controller.render.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    target = await render_preview(scene_path, "abc123")
+
+    assert captured_args is not None
+    assert target == expected_raw_output
 
 
 @pytest.mark.asyncio
