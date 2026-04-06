@@ -16,7 +16,7 @@ Supersedes: `docs/2026-03-28-docs-hygiene-followups.md`
 ## What Was Patched
 
 - Updated `README.md` to describe the explicit Manim-config-based render flow.
-- Documented the split between raw scene renders under `layersense_artifacts/scenes/...` and cache-facing hashed artifacts under `layersense_artifacts/`.
+- Documented the split between canonical scene renders under `layersense_artifacts/scenes/...` and cache metadata under `layersense_artifacts/cache/index.json`.
 - Documented that controller render requests must reference scene files inside the configured `layersense_scenes` directory.
 - Updated `docs/ROADMAP.md` near-term focus to reflect the explicit artifact layout now used by the controller.
 - Updated active Manim-config docs to reflect that preview/final config defaults are now packaged inside `layersense_controller`, not stored as repo-root runtime files.

@@ -28,7 +28,7 @@ The controller watcher code remains in the repo for future manual-edit rerender 
 
 Raw Manim scene renders now live under `./layersense_artifacts/scenes/<project-or-_root>/<preview|final>/...`.
 The preview/final Manim config defaults are packaged inside `layersense_controller` itself under `src/layersense_controller/resources/`, so local and Docker runs use the same installed config resources instead of repo-root config files.
-Controller-served browser artifacts remain the cache-facing hashed files at `./layersense_artifacts/<hash>_preview.mp4` and `./layersense_artifacts/<hash>_final.mp4`.
+The controller now keeps a JSON cache index at `./layersense_artifacts/cache/index.json` and serves browser-facing artifacts through stable routes instead of duplicating top-level hash-named mp4 files.
 
 ## Render Layout
 
@@ -43,6 +43,8 @@ Example raw artifact tree:
 
 ```text
 layersense_artifacts/
+  cache/
+    index.json
   scenes/
     generated_scenes/
       preview/
@@ -52,11 +54,16 @@ layersense_artifacts/
     _root/
       preview/
         standalone_preview.mp4
-  abc123_preview.mp4
-  abc123_final.mp4
 ```
 
-The `scenes/` subtree is the raw Manim-owned layout. The top-level hashed files are the controller-facing cache artifacts served back to the browser.
+The `scenes/` subtree is the canonical media layout. The cache index maps content hashes and semantic scene UUIDs to those canonical files.
+
+Current browser-facing artifact routes:
+
+- `/artifacts/by-hash/<content_hash>/preview`
+- `/artifacts/by-hash/<content_hash>/final`
+- `/artifacts/scenes/<scene_uuid>`
+- `/artifacts/scenes/<scene_uuid>?preview=true`
 
 ## What This Repo Is Not Yet
 

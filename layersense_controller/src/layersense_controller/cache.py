@@ -109,11 +109,9 @@ def store_cached_artifacts(
         record: CachedArtifacts = {
             "scene_path": scene_path,
             "scene_uuid": scene_uuid,
-            "preview": preview
-            if preview is not None
-            else existing["preview"]
-            if existing
-            else None,
+            "preview": (
+                preview if preview is not None else existing["preview"] if existing else None
+            ),
             "final": final if final is not None else existing["final"] if existing else None,
             "updated_at": _utc_now(),
             "artifact_version": existing["artifact_version"] if existing else 1,

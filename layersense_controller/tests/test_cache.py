@@ -5,7 +5,6 @@ import time
 from unittest.mock import ANY
 
 import pytest
-
 from layersense_controller.cache import (
     hash_file,
     is_cached,
