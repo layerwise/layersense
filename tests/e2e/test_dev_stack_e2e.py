@@ -38,18 +38,38 @@ class GeneratedScene(Scene):
 """
 
 
+def _frontend_base() -> str:
+    return os.getenv("LAYERSENSE_SMOKE_FRONTEND_BASE", "http://localhost:3000")
+
+
+def _agent_base() -> str:
+    return os.getenv("LAYERSENSE_SMOKE_AGENT_BASE", "http://localhost:8000")
+
+
+def _controller_base() -> str:
+    return os.getenv("LAYERSENSE_SMOKE_CONTROLLER_BASE", "http://localhost:8001")
+
+
+def _controller_ws_url() -> str:
+    return os.getenv("LAYERSENSE_SMOKE_CONTROLLER_WS_URL", "ws://localhost:8001/ws")
+
+
 def _repo_root() -> Path:
     override = os.getenv("LAYERSENSE_SMOKE_REPO_ROOT")
     if override:
         return Path(override)
 
-    common_dir = subprocess.run(
-        ["git", "rev-parse", "--git-common-dir"],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-    return Path(common_dir).resolve().parent
+    try:
+        top_level = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError:
+        return Path(__file__).resolve().parents[2]
+
+    return Path(top_level)
 
 
 def _scenes_dir() -> Path:
@@ -86,15 +106,15 @@ def _request_with_boundary_failure(
 
 
 def _assert_ok(response: requests.Response, boundary: str) -> None:
-    assert (
-        response.ok
-    ), f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
+    assert response.ok, (
+        f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
+    )
 
 
 def _create_animation(prompt: str) -> dict[str, Any]:
     response = _request_with_boundary_failure(
         "POST",
-        urljoin(AGENT_BASE, "/api/v1/animation"),
+        urljoin(_agent_base(), "/api/v1/animation"),
         "agent animation request",
         {"prompt": prompt, "scene": SCENE_PAYLOAD},
         timeout=ANIMATION_REQUEST_TIMEOUT_SECONDS,
@@ -110,7 +130,7 @@ def _create_animation(prompt: str) -> dict[str, Any]:
 def _queue_render(scene_path: str, conversation_id: str) -> dict[str, Any]:
     response = _request_with_boundary_failure(
         "POST",
-        urljoin(CONTROLLER_BASE, "/render"),
+        urljoin(_controller_base(), "/render"),
         "controller render request",
         {"scene_path": scene_path, "conversation_id": conversation_id},
     )
@@ -143,8 +163,8 @@ def _scene_uuid_for_scene(scene_path: str, conversation_id: str | None = None) -
 def _artifact_candidates(scene_path: str) -> tuple[str, str]:
     content_hash = _content_hash_for_scene(scene_path)
     return (
-        urljoin(CONTROLLER_BASE, f"/artifacts/by-hash/{content_hash}/preview"),
-        urljoin(CONTROLLER_BASE, f"/artifacts/by-hash/{content_hash}/final"),
+        urljoin(_controller_base(), f"/artifacts/by-hash/{content_hash}/preview"),
+        urljoin(_controller_base(), f"/artifacts/by-hash/{content_hash}/final"),
     )
 
 
@@ -153,17 +173,17 @@ def _scene_artifact_candidates(
 ) -> tuple[str, str]:
     scene_uuid = _scene_uuid_for_scene(scene_path, conversation_id)
     return (
-        urljoin(CONTROLLER_BASE, f"/artifacts/scenes/{scene_uuid}"),
-        urljoin(CONTROLLER_BASE, f"/artifacts/scenes/{scene_uuid}?preview=true"),
+        urljoin(_controller_base(), f"/artifacts/scenes/{scene_uuid}"),
+        urljoin(_controller_base(), f"/artifacts/scenes/{scene_uuid}?preview=true"),
     )
 
 
 def _host_scene_path(scene_path: str) -> Path:
     scene_name = Path(scene_path).name
     host_scene_path = _scenes_dir() / scene_name
-    assert (
-        host_scene_path.exists()
-    ), f"scene path returned by stack is not present in host-mounted scenes dir: {host_scene_path}"
+    assert host_scene_path.exists(), (
+        f"scene path returned by stack is not present in host-mounted scenes dir: {host_scene_path}"
+    )
     return host_scene_path
 
 
@@ -187,7 +207,7 @@ def _temporary_known_good_scene(filename: str) -> Any:
 
 @contextmanager
 def _controller_events() -> Any:
-    with websocket_connect(CONTROLLER_WS_URL) as websocket:
+    with websocket_connect(_controller_ws_url()) as websocket:
         yield websocket
 
 
@@ -261,21 +281,25 @@ def _wait_for_artifacts(
 
 def test_frontend_root_serves_layersense_app_shell() -> None:
     response = _request_with_boundary_failure(
-        "GET", urljoin(FRONTEND_BASE, "/"), "frontend root request"
+        "GET",
+        urljoin(_frontend_base(), "/"),
+        "frontend root request",
     )
 
     _assert_ok(response, "frontend root request")
     content_type = response.headers.get("content-type", "")
-    assert (
-        "text/html" in content_type
-    ), f"frontend returned unexpected content type: {content_type}"
+    assert "text/html" in content_type, (
+        f"frontend returned unexpected content type: {content_type}"
+    )
     assert '<div id="root"></div>' in response.text, "frontend root mount marker missing"
     assert "/src/main.tsx" in response.text, "frontend dev entrypoint marker missing"
 
 
 def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:
     health_response = _request_with_boundary_failure(
-        "GET", urljoin(AGENT_BASE, "/health"), "agent health request"
+        "GET",
+        urljoin(_agent_base(), "/health"),
+        "agent health request",
     )
     _assert_ok(health_response, "agent health request")
 
@@ -288,7 +312,9 @@ def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:
 
 def test_controller_render_emits_terminal_websocket_event_for_known_good_scene() -> None:
     health_response = _request_with_boundary_failure(
-        "GET", urljoin(CONTROLLER_BASE, "/health"), "controller health request"
+        "GET",
+        urljoin(_controller_base(), "/health"),
+        "controller health request",
     )
     _assert_ok(health_response, "controller health request")
 
@@ -304,7 +330,7 @@ def test_controller_render_emits_terminal_websocket_event_for_known_good_scene()
     assert event["type"] in {"artifact_ready", "render_ready", "render_failed"}
     if event["type"] == "render_failed":
         pytest.fail(f"controller failed to render known-good smoke scene: {event}")
-    assert scene_url.startswith(urljoin(CONTROLLER_BASE, "/artifacts/scenes/"))
+    assert scene_url.startswith(urljoin(_controller_base(), "/artifacts/scenes/"))
     assert scene_preview_url.endswith("?preview=true")
     assert preview_url.endswith("/preview")
     assert final_url.endswith("/final")
@@ -323,7 +349,7 @@ def test_api_chain_generate_to_render_completes() -> None:
         )
         assert event["preview_url"].startswith("/artifacts/by-hash/")
         assert event["final_url"].startswith("/artifacts/by-hash/")
-        assert scene_url.startswith(urljoin(CONTROLLER_BASE, "/artifacts/scenes/"))
+        assert scene_url.startswith(urljoin(_controller_base(), "/artifacts/scenes/"))
         assert scene_preview_url.endswith("?preview=true")
         assert preview_url.endswith("/preview")
         assert final_url.endswith("/final")
@@ -333,7 +359,7 @@ def test_api_chain_generate_to_render_completes() -> None:
             animation["scene_path"], animation["conversation_id"]
         )
         assert event["url"].startswith("/artifacts/by-hash/")
-        assert scene_url.startswith(urljoin(CONTROLLER_BASE, "/artifacts/scenes/"))
+        assert scene_url.startswith(urljoin(_controller_base(), "/artifacts/scenes/"))
         assert scene_preview_url.endswith("?preview=true")
         assert preview_url.endswith("/preview")
         assert final_url.endswith("/final")

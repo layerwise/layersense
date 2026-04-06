@@ -118,6 +118,9 @@ test:
 e2e:
     uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e
 
+test-e2e:
+    docker compose -f docker-compose.e2e.yml run --rm e2e-runner sh /workspace/scripts/run_e2e.sh
+
 # Run type checks
 typecheck:
     uv run --all-packages mypy
