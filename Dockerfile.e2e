@@ -1,0 +1,37 @@
+FROM python:3.14-bookworm
+
+ARG TARGETARCH
+ARG DOCKER_VERSION=29.0.2
+ARG DOCKER_COMPOSE_VERSION=v2.40.1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+RUN case "${TARGETARCH}" in \
+        amd64) docker_arch=x86_64 ;; \
+        arm64) docker_arch=aarch64 ;; \
+        *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/${docker_arch}/docker-${DOCKER_VERSION}.tgz" \
+    | tar -xz --strip-components=1 -C /usr/local/bin docker/docker
+
+RUN case "${TARGETARCH}" in \
+        amd64) compose_arch=x86_64 ;; \
+        arm64) compose_arch=aarch64 ;; \
+        *) echo "Unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && mkdir -p /usr/local/lib/docker/cli-plugins \
+    && curl -fsSL "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-${compose_arch}" \
+        -o /usr/local/lib/docker/cli-plugins/docker-compose \
+    && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+WORKDIR /workspace
+
+CMD ["bash"]

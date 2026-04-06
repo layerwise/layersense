@@ -1,0 +1,42 @@
+services:
+  frontend:
+    container_name: layersense_frontend_e2e
+    build:
+      context: ./layersense_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    depends_on:
+      - agent
+      - controller
+
+  agent:
+    container_name: layersense_agent_e2e
+    build:
+      context: ./layersense_agent
+    ports:
+      - "8000:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      CODESTRAL_API_KEY: ${CODESTRAL_API_KEY}
+      LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
+    volumes:
+      - layersense_code:/layersense_artifacts/code
+
+  controller:
+    container_name: layersense_controller_e2e
+    build:
+      context: ./layersense_controller
+    ports:
+      - "8001:8001"
+    environment:
+      LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
+      LAYERSENSE_ARTIFACTS_DIR: /layersense_artifacts
+    volumes:
+      - layersense_code:/layersense_artifacts/code
+      - layersense_artifacts:/layersense_artifacts
+
+volumes:
+  layersense_artifacts:
+  layersense_code:

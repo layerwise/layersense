@@ -93,6 +93,21 @@ Run the dedicated `e2e` suite against an already-running local stack with:
 just e2e
 ```
 
+Run the assistant-friendly reproducible end-to-end path with:
+
+```bash
+just test-e2e
+```
+
+This starts a dedicated `e2e-runner` container that mounts the host Docker socket, provisions its own Dockerized frontend/agent/controller stack, runs the full test suite including smoke tests, and tears the stack down afterward.
+
+Notes for `just test-e2e`:
+
+- Export `OPENAI_API_KEY` in your shell before running it.
+- Export `CODESTRAL_API_KEY` in your shell before running it.
+- The runner is intentionally host-socket based rather than full nested Docker isolation.
+- It is meant to give coding assistants a single command that does not depend on them inspecting an already-running local stack.
+
 For containerized Python debugging in VS Code, start the stack with the debug overlay:
 
 ```bash
