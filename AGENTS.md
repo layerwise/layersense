@@ -86,7 +86,7 @@ than no docs.
 ## Autonomous linting and testing
 - Verify the codebase by running `just lint` and `just test` in the project or workspace root.
 - Use `just smoke` when you need live-stack verification against the local running services.
-- Format Python code with `uv run --all-packages black` when `just format` is insufficient.
+- Format Python code with `just format`.
 - When encountering lint warnings: STOP and present options to the user
   - Do not automatically add #[allow] directives or similar suppression
   - Present tradeoffs and get explicit approval first
@@ -225,43 +225,6 @@ POTENTIAL CONCERNS:
 11. Modifying comments/code orthogonal to the task
 12. Removing things you don't fully understand
 
-## Database Migration Workflow
-
-### Separation of Concerns
-- Database migrations MUST be separate commits/PRs from features that use them
-- Merge order: migration first → then feature implementation
-- Never bundle schema changes with feature code in same PR
-
-### Why
-- **Easy rollback**: Revert feature without touching schema
-- **Safer deploys**: Schema stabilizes before features land
-- **Clear history**: Schema changes isolated, easy to audit
-- **Prevents coupling**: Forces clean separation between data layer and logic
-
-### Process
-1. Create migration PR:
-   - Add new migration file (e.g., `v008_add_user_roles.rs`)
-   - Update `migration.rs` to include it
-   - Test: backup → migration → verify
-   - Merge when green
-
-2. Create feature PR:
-   - Implement feature using new schema
-   - Reference merged migration PR
-   - Deploy only after migration is in production
-
-### When to Violate
-- Never on production
-- Initial project setup where no prod data exists
-- Hotfixes where atomicity is critical (document why)
-
-### Red Flags
-- "I'll just add the migration in this feature branch"
-- "We can merge them together, it's faster"
-- Schema changes discovered during code review
-
-If migration wasn't planned upfront: STOP. Extract it to separate PR first.
-
 ## Meta
 The human is monitoring you in an IDE. They can see everything. They will catch your mistakes. Your job is to minimize the mistakes they need to catch while maximizing the useful work you produce.
 
@@ -317,3 +280,4 @@ refactor: extract shared snapshot download logic
 
 - You are never allowed to read a .env file.
 - You need to avoid commands that would print environment variables or secrets at all costs.
+- Alert the user if plaintext secrets ever appear in the context, including tool outputs, sub-agents, terminal history etc.
