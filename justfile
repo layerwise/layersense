@@ -45,9 +45,33 @@ agent-dev:
 
 # -------------------------
 
-# Run all tests with coverage
+test_python:
+    @echo "Python Tests"
+    just test_python_unit
+
+# run only Python unit tests
+test_python_unit:
+    @echo "Python Unit Tests"
+    uv run --all-packages pytest -m unit
+
+# run Python integration tests in replay mode off pre-recorded interactions
+test_python_integration:
+    @echo "Python Integration Tests (replay)"
+    uv run --all-packages pytest -m integration --integration-mode=replay
+
+# run Python integration tests in refresh mode against a live stack, refreshing the recorded interactions
+test_python_integration_refresh:
+    @echo "Python Integration Tests (refresh)"
+    uv run --all-packages pytest -m integration --integration-mode=record
+
+# run Python end-to-end tests that test a live stack
+test_python_e2e:
+    @echo "Python E2E Tests"
+    uv run --all-packages pytest -m e2e
+
+# Run all tests (Python + frontend)
 test:
-    uv run --all-packages pytest -m "not smoke"
+    just test_python_unit
     npm --prefix layersense_frontend test
 
 smoke:
