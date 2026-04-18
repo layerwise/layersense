@@ -12,7 +12,7 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 - `layersense_frontend/` contains a stock-Excalidraw React app with prompt input, generate flow, and preview/final render UI.
 - `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload and writes generated Manim scene files.
 - `layersense_controller/` can watch scenes, queue renders, render Manim outputs with explicit config files, cache artifacts, and broadcast render events.
-- The full end-to-end workflow is partially implemented, and the repo now includes dedicated smoke tests, but real render reliability issues still remain before it should be treated as production-ready.
+- The full end-to-end workflow is partially implemented, and the repo now includes dedicated Python `e2e` tests for the live local stack, but real render reliability issues still remain before it should be treated as production-ready.
 
 ## Current Architecture
 
@@ -87,10 +87,10 @@ This starts:
 - `agent` at `http://localhost:8000`
 - `controller` at `http://localhost:8001`
 
-Run the dedicated smoke suite against an already-running local stack with:
+Run the dedicated `e2e` suite against an already-running local stack with:
 
 ```bash
-just smoke
+just e2e
 ```
 
 For containerized Python debugging in VS Code, start the stack with the debug overlay:
@@ -108,9 +108,9 @@ Then use the VS Code launch config `Attach: Full dev stack` to attach to both Py
 
 Notes:
 
-- `just smoke` is separate from `just test`.
+- `just e2e` is separate from `just test`.
 - It probes the real local service chain at `localhost:3000`, `localhost:8000`, and `localhost:8001`.
-- It is intended to surface real runtime regressions, so a failing smoke run can still indicate useful progress if it points at a concrete controller or agent bug.
+- It is intended to surface real runtime regressions, so a failing `e2e` run can still indicate useful progress if it points at a concrete controller or agent bug.
 
 Notes:
 

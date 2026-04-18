@@ -1,3 +1,4 @@
 - when running sub-agents or running in a git worktree, don't assume the live stack/dev stack is available.
-Docker containers might run in the root worktree, from a different branch, or at the user's discretion.
-- when running smoke tests or verifying code against the dev stack, always coordinate with the user.
+- Docker containers might run in the root worktree, from a different branch, or at the user's discretion.
+- when running live-stack e2e tests or verifying code against the dev stack, always coordinate with the user.
+- when a rollout includes live integration refresh or e2e verification, delay those runs until non-live setup, classification, and docs work are complete unless the user explicitly asks for immediate live verification.

@@ -11,6 +11,8 @@ from layersense_controller.render import (
     render_preview,
 )
 
+pytestmark = [pytest.mark.unit, pytest.mark.ai]
+
 
 @contextmanager
 def fake_config_resource(base_dir: Path, filename: str):

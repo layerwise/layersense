@@ -21,8 +21,8 @@ When producing code, use modern Python and honour the existing code style. Use `
 
 In a root `justfile`, the following commands are available:
 - `just setup`: Sync all packages and install dependencies
-- `just test`: Run the default automated test suite (excludes smoke tests)
-- `just smoke`: Run black-box smoke tests against an already-running local stack
+- `just test`: Run the default automated test suite (excludes live-stack `e2e` tests)
+- `just e2e`: Run black-box end-to-end tests against an already-running local stack
 - `just typecheck`: Run mypy type checks
 - `just lint`: Run ruff and black checks
 - `just format`: Run ruff and black fixes
@@ -85,7 +85,7 @@ than no docs.
 
 ## Autonomous linting and testing
 - Verify the codebase by running `just lint` and `just test` in the project or workspace root.
-- Use `just smoke` when you need live-stack verification against the local running services.
+- Use `just e2e` when you need live-stack verification against the local running services.
 - Format Python code with `just format`.
 - When encountering lint warnings: STOP and present options to the user
   - Do not automatically add #[allow] directives or similar suppression

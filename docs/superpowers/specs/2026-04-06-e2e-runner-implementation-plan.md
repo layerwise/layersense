@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add `just test-e2e` as a single-command, assistant-friendly full-suite test entrypoint that launches a runner container, provisions the Dockerized app stack through the host Docker socket, runs non-smoke and smoke tests, and tears the stack down.
+**Goal:** Add `just test-e2e` as a single-command, assistant-friendly full-suite test entrypoint that launches a runner container, provisions the Dockerized app stack through the host Docker socket, runs non-`e2e` and `e2e` tests, and tears the stack down.
 
-**Architecture:** A new outer `e2e-runner` container will mount the current workspace and host Docker socket, then use a dedicated inner compose file to launch frontend, agent, and controller in an isolated project namespace. The smoke suite will be made environment-driven so the same tests continue to work for `just smoke` against localhost and for `just test-e2e` against the runner-managed stack, including nested git worktrees.
+**Architecture:** A new outer `e2e-runner` container will mount the current workspace and host Docker socket, then use a dedicated inner compose file to launch frontend, agent, and controller in an isolated project namespace. The `e2e` suite will be made environment-driven so the same tests continue to work for `just e2e` against localhost and for `just test-e2e` against the runner-managed stack, including nested git worktrees.
 
 **Tech Stack:** Docker Compose, shell scripting, just, pytest, uv, Node/npm, existing LayerSense Docker services
 
@@ -63,12 +63,12 @@ Expected: FAIL with assertion or missing helper behavior, not import/setup break
 
 Do not commit unless asked.
 
-### Task 2: Refactor smoke tests to be environment-driven and worktree-safe
+### Task 2: Refactor e2e tests to be environment-driven and worktree-safe
 
 **Files:**
-- Modify: `tests/smoke/test_dev_stack_smoke.py`
+- Modify: `tests/e2e/test_dev_stack_e2e.py`
 - Test: `tests/test_dev_stack_config.py`
-- Test: `tests/smoke/test_dev_stack_smoke.py`
+- Test: `tests/e2e/test_dev_stack_e2e.py`
 
 **Step 1: Implement the minimal helper changes**
 
@@ -91,11 +91,11 @@ Expected: PASS.
 
 **Step 3: Run the smoke file collection check**
 
-Run: `uv run --all-packages pytest tests/smoke/test_dev_stack_smoke.py --collect-only -q`
+Run: `uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py --collect-only -q`
 
-Expected: smoke tests collect successfully with no import errors.
+Expected: `e2e` tests collect successfully with no import errors.
 
-**Step 4: Run the existing non-smoke suite that touches stack config**
+**Step 4: Run the existing non-`e2e` suite that touches stack config**
 
 Run: `uv run --all-packages pytest tests/test_dev_stack_config.py layersense_controller/tests/test_main.py -v`
 
@@ -175,7 +175,7 @@ Add assertions that the inner compose file:
 - defines `frontend`, `agent`, and `controller`
 - exposes the same service ports inside the compose project
 - uses the repo-local build contexts already used by the existing stack
-- wires the same artifact/code-sharing semantics needed by the smoke suite
+- wires the same artifact/code-sharing semantics needed by the `e2e` suite
 
 **Step 2: Run test to verify it fails**
 
@@ -218,7 +218,7 @@ Add assertions that `scripts/run_e2e.sh` exists and includes the core orchestrat
 - generate a unique compose project name
 - run `docker compose -f docker-compose.e2e.inner.yml ... up --build -d`
 - run `docker compose ... down -v` in cleanup
-- invoke non-smoke tests, frontend tests, and smoke tests
+- invoke non-`e2e` tests, frontend tests, and `e2e` tests
 - set smoke environment overrides for repo root and service base URLs
 
 Keep these assertions text-based and focused on contract, not shell implementation details.
@@ -248,7 +248,7 @@ Implement a small shell script that:
 - runs:
   - `uv run --all-packages pytest -m "not smoke"`
   - `npm --prefix layersense_frontend test`
-  - `uv run --all-packages pytest tests/smoke/test_dev_stack_smoke.py -m smoke`
+  - `uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e`
 - captures compose status/logs on failure
 - always tears the stack down
 
@@ -315,7 +315,7 @@ Do not commit unless asked.
 
 Add assertions that `README.md` documents:
 
-- `just smoke` remains for an already-running local stack
+- `just e2e` remains for an already-running local stack
 - `just test-e2e` provisions its own runner-managed stack
 - the new command requires provider env vars
 - the new command is intended for assistant-friendly reproducible execution
@@ -332,7 +332,7 @@ Add a short section under local testing or Docker workflow.
 
 Keep the documentation concise:
 
-- when to use `just smoke`
+- when to use `just e2e`
 - when to use `just test-e2e`
 - required API key env vars
 - note that the e2e runner uses the host Docker socket to provision its own stack
@@ -374,7 +374,7 @@ Expected: exit `0`.
 
 **Step 4: Verify smoke test collection in runner context assumptions**
 
-Run: `uv run --all-packages pytest tests/smoke/test_dev_stack_smoke.py --collect-only -q`
+Run: `uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py --collect-only -q`
 
 Expected: exit `0`.
 
@@ -403,7 +403,7 @@ Expected: exit `0`.
 
 Run: `just test`
 
-Expected: exit `0`, and smoke tests are still excluded.
+Expected: exit `0`, and `e2e` tests are still excluded.
 
 **Step 4: Run workspace verification**
 
@@ -415,7 +415,7 @@ Expected: exit `0`.
 
 Run: `just test-e2e`
 
-Expected: exit `0`, with the runner provisioning the inner stack, executing the full suite including smoke tests, and tearing the stack down afterward.
+Expected: exit `0`, with the runner provisioning the inner stack, executing the full suite including `e2e` tests, and tearing the stack down afterward.
 
 **Step 6: Record any residual issues**
 

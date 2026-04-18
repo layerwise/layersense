@@ -16,6 +16,8 @@ import requests
 from requests import Response
 from websockets.sync.client import connect as websocket_connect
 
+pytestmark = [pytest.mark.e2e, pytest.mark.ai]
+
 FRONTEND_BASE = "http://localhost:3000"
 AGENT_BASE = "http://localhost:8000"
 CONTROLLER_BASE = "http://localhost:8001"
@@ -257,7 +259,6 @@ def _wait_for_artifacts(
     )
 
 
-@pytest.mark.smoke
 def test_frontend_root_serves_layersense_app_shell() -> None:
     response = _request_with_boundary_failure(
         "GET", urljoin(FRONTEND_BASE, "/"), "frontend root request"
@@ -272,7 +273,6 @@ def test_frontend_root_serves_layersense_app_shell() -> None:
     assert "/src/main.tsx" in response.text, "frontend dev entrypoint marker missing"
 
 
-@pytest.mark.smoke
 def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:
     health_response = _request_with_boundary_failure(
         "GET", urljoin(AGENT_BASE, "/health"), "agent health request"
@@ -286,7 +286,6 @@ def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:
     assert scene_path.is_file(), f"agent returned non-file scene path: {scene_path}"
 
 
-@pytest.mark.smoke
 def test_controller_render_emits_terminal_websocket_event_for_known_good_scene() -> None:
     health_response = _request_with_boundary_failure(
         "GET", urljoin(CONTROLLER_BASE, "/health"), "controller health request"
@@ -311,7 +310,6 @@ def test_controller_render_emits_terminal_websocket_event_for_known_good_scene()
     assert final_url.endswith("/final")
 
 
-@pytest.mark.smoke
 def test_api_chain_generate_to_render_completes() -> None:
     animation = _create_animation("Generate and render a simple smoke test animation.")
     with _controller_events() as websocket:

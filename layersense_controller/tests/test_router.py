@@ -8,6 +8,8 @@ from layersense_controller.config import settings
 from layersense_controller.render import RenderError
 from layersense_controller.router import _render_pipeline, router
 
+pytestmark = [pytest.mark.unit, pytest.mark.ai]
+
 
 def _build_client() -> TestClient:
     app = FastAPI()

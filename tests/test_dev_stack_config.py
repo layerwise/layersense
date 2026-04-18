@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import pytest
+
+pytestmark = [pytest.mark.unit, pytest.mark.ai]
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

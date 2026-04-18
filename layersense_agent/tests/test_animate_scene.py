@@ -6,6 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from layersense_agent.main import app
 
+pytestmark = [pytest.mark.unit, pytest.mark.ai]
+
 FAKE_CODE = (
     "from manim import *\n\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass\n"
 )

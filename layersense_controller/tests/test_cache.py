@@ -14,6 +14,8 @@ from layersense_controller.cache import (
 )
 from layersense_controller.config import settings
 
+pytestmark = [pytest.mark.unit, pytest.mark.ai]
+
 
 def _store_cached_artifacts_in_subprocess(artifacts_dir: str) -> None:
     from pathlib import Path
