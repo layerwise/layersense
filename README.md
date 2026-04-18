@@ -99,13 +99,14 @@ Run the assistant-friendly reproducible end-to-end path with:
 just test-e2e
 ```
 
-This starts a dedicated `e2e-runner` container that mounts the host Docker socket, provisions its own Dockerized frontend/agent/controller stack, runs the full test suite including smoke tests, and tears the stack down afterward.
+This starts an ephemeral compose project built from `docker-compose.yml` plus `docker-compose.e2e.yml`. That project contains `frontend`, `agent`, `controller`, and `e2e-runner` on a shared compose network, and the runner executes the full test suite including smoke tests.
 
 Notes for `just test-e2e`:
 
 - Export `OPENAI_API_KEY` in your shell before running it.
 - Export `CODESTRAL_API_KEY` in your shell before running it.
-- The runner is intentionally host-socket based rather than full nested Docker isolation.
+- The ephemeral compose project publishes the stack on `3901`, `8900`, and `8901` to avoid colliding with the default local dev stack ports.
+- The `e2e-runner` talks to the services over the shared compose network by service name rather than via host-local ports.
 - It is meant to give coding assistants a single command that does not depend on them inspecting an already-running local stack.
 
 For containerized Python debugging in VS Code, start the stack with the debug overlay:

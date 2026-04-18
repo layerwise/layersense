@@ -3,6 +3,7 @@ services:
     container_name: layersense_frontend
     build:
       context: ./layersense_frontend
+      target: dev
     ports:
       - "3000:3000"
     environment:

@@ -119,7 +119,7 @@ e2e:
     uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e
 
 test-e2e:
-    docker compose -f docker-compose.e2e.yml run --rm e2e-runner sh /workspace/scripts/run_e2e.sh
+    docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e-runner ; docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v
 
 # Run type checks
 typecheck:
