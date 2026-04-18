@@ -48,24 +48,66 @@ agent-dev:
 test_python:
     @echo "Python Tests"
     just test_python_unit
+    just test_python_integration
+
+[private]
+_test_python_unit_coverage_data coverage_file:
+    COVERAGE_FILE={{coverage_file}} uv run --all-packages python -m coverage run -m pytest -m unit
+
+[private]
+_test_python_integration_coverage_data coverage_file:
+    COVERAGE_FILE={{coverage_file}} uv run --all-packages python -m coverage run -m pytest -m integration --integration-mode=replay
 
 # run only Python unit tests
 test_python_unit:
     @echo "Python Unit Tests"
     uv run --all-packages pytest -m unit
 
+# run only Python unit tests with coverage reporting
+test_python_unit_coverage:
+    @echo "Python Unit Tests with Coverage"
+    rm -rf coverage
+    mkdir -p coverage
+    just _test_python_unit_coverage_data coverage/.coverage
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage report
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage xml -o coverage/coverage.xml
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage html -d coverage/html
+
 # run Python integration tests in replay mode off pre-recorded interactions
 test_python_integration:
     @echo "Python Integration Tests (replay)"
     uv run --all-packages pytest -m integration --integration-mode=replay
 
+# run Python integration replay tests with coverage reporting
+test_python_integration_coverage:
+    @echo "Python Integration Tests with Coverage (replay)"
+    rm -rf coverage
+    mkdir -p coverage
+    just _test_python_integration_coverage_data coverage/.coverage
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage report
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage xml -o coverage/coverage.xml
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage html -d coverage/html
+
+# run Python unit and integration replay tests with combined coverage reporting
+test_python_coverage:
+    @echo "Python Tests with Coverage"
+    rm -rf coverage
+    mkdir -p coverage
+    just _test_python_unit_coverage_data coverage/.coverage.unit
+    just _test_python_integration_coverage_data coverage/.coverage.integration
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage combine coverage/.coverage.unit coverage/.coverage.integration
+    rm -f coverage/.coverage.unit coverage/.coverage.integration
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage report
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage xml -o coverage/coverage.xml
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage html -d coverage/html
+
 # run Python integration tests in refresh mode against a live stack, refreshing the recorded interactions
-test_python_integration_refresh:
+test_python_integration_refresh
     @echo "Python Integration Tests (refresh)"
     uv run --all-packages pytest -m integration --integration-mode=record
 
 # run Python end-to-end tests that test a live stack
-test_python_e2e:
+test_python_e2e environment="puc4web":
     @echo "Python E2E Tests"
     uv run --all-packages pytest -m e2e
 
