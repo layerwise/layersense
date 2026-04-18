@@ -1,4 +1,22 @@
 services:
+  frontend:
+    container_name: layersense_frontend_e2e
+    build:
+      target: prod
+    ports: !reset
+      - "3901:80"
+    volumes: !reset []
+
+  agent:
+    container_name: layersense_agent_e2e
+    ports: !reset
+      - "8900:8000"
+
+  controller:
+    container_name: layersense_controller_e2e
+    ports: !reset
+      - "8901:8001"
+
   e2e-runner:
     build:
       context: .
@@ -7,6 +25,10 @@ services:
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       CODESTRAL_API_KEY: ${CODESTRAL_API_KEY}
+    depends_on:
+      - frontend
+      - agent
+      - controller
+    command: ["sh", "/workspace/scripts/run_e2e.sh"]
     volumes:
       - .:/workspace
-      - /var/run/docker.sock:/var/run/docker.sock

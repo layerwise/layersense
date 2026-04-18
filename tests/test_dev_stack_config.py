@@ -74,6 +74,30 @@ def test_debug_dockerfiles_extend_named_base_stages() -> None:
     )
 
 
+def test_frontend_dockerfile_describes_multi_stage_dev_and_prod_contract() -> None:
+    content = (ROOT / "layersense_frontend" / "Dockerfile").read_text()
+
+    assert content.count("FROM ") >= 3
+    assert "npm ci" in content
+    assert " AS dev" in content
+    assert " AS build" in content
+    assert "FROM nginx:alpine AS prod" in content
+
+
+def test_frontend_dockerfile_has_no_runtime_npm_install() -> None:
+    content = (ROOT / "layersense_frontend" / "Dockerfile").read_text()
+
+    assert 'CMD ["sh", "-c", "npm install' not in content
+    assert "npm install &&" not in content
+
+
+def test_frontend_compose_builds_dev_target() -> None:
+    content = (ROOT / "docker-compose.yml").read_text()
+
+    assert "frontend:" in content
+    assert "target: dev" in content
+
+
 def test_smoke_repo_root_uses_env_override(monkeypatch) -> None:
     monkeypatch.setenv("LAYERSENSE_SMOKE_REPO_ROOT", "/tmp/worktree")
 
@@ -109,30 +133,46 @@ def test_smoke_repo_root_falls_back_to_test_file_parent(monkeypatch) -> None:
 def test_e2e_runner_files_exist() -> None:
     assert (ROOT / "docker-compose.e2e.yml").exists()
     assert (ROOT / "Dockerfile.e2e").exists()
+    assert not (ROOT / "docker-compose.e2e.inner.yml").exists()
 
 
-def test_e2e_runner_compose_mounts_socket_workspace_and_env() -> None:
+def test_e2e_overlay_compose_adds_runner_and_port_remaps() -> None:
     content = (ROOT / "docker-compose.e2e.yml").read_text()
 
     assert "e2e-runner:" in content
-    assert "/var/run/docker.sock:/var/run/docker.sock" in content
+    assert "frontend:" in content
+    assert "agent:" in content
+    assert "controller:" in content
     assert ".:/workspace" in content
     assert "working_dir: /workspace" in content
     assert "OPENAI_API_KEY: ${OPENAI_API_KEY}" in content
     assert "CODESTRAL_API_KEY: ${CODESTRAL_API_KEY}" in content
+    assert '"3901:80"' in content
+    assert '"8900:8000"' in content
+    assert '"8901:8001"' in content
+    assert "container_name: layersense_frontend_e2e" in content
+    assert "container_name: layersense_agent_e2e" in content
+    assert "container_name: layersense_controller_e2e" in content
+    assert "/var/run/docker.sock:/var/run/docker.sock" not in content
 
 
 def test_e2e_inner_compose_defines_app_stack() -> None:
-    content = (ROOT / "docker-compose.e2e.inner.yml").read_text()
+    content = (ROOT / "docker-compose.e2e.yml").read_text()
 
     assert "frontend:" in content
     assert "agent:" in content
     assert "controller:" in content
-    assert "context: ./layersense_frontend" in content
-    assert "context: ./layersense_agent" in content
-    assert "context: ./layersense_controller" in content
-    assert "layersense_artifacts:" in content
-    assert "layersense_code:" in content
+    assert "target: prod" in content
+    assert '"3901:80"' in content
+    assert '"8900:8000"' in content
+    assert '"8901:8001"' in content
+    assert (
+        'command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]'
+        not in content
+    )
+    assert "!reset" in content
+    assert "- ./layersense_frontend:/app" not in content
+    assert "- frontend_node_modules:/app/node_modules" not in content
 
 
 def test_e2e_runner_script_exists_and_orchestrates_stack() -> None:
@@ -140,9 +180,7 @@ def test_e2e_runner_script_exists_and_orchestrates_stack() -> None:
 
     assert "OPENAI_API_KEY" in content
     assert "CODESTRAL_API_KEY" in content
-    assert "docker-compose.e2e.inner.yml" in content
-    assert "up --build -d" in content
-    assert "down -v" in content
+    assert "docker compose" not in content
     assert 'pytest -m "not smoke"' in content
     assert "npm --prefix layersense_frontend test" in content
     assert "pytest tests/smoke/test_dev_stack_smoke.py -m smoke" in content
@@ -151,13 +189,40 @@ def test_e2e_runner_script_exists_and_orchestrates_stack() -> None:
     assert "LAYERSENSE_SMOKE_AGENT_BASE" in content
     assert "LAYERSENSE_SMOKE_CONTROLLER_BASE" in content
     assert "LAYERSENSE_SMOKE_CONTROLLER_WS_URL" in content
+    assert "http://frontend/" in content
+    assert "http://agent:8000/health" in content
+    assert "http://controller:8001/health" in content
+    assert "ws://controller:8001/ws" in content
+    assert "attempts=${3:-120}" in content
+
+
+def test_e2e_dockerfile_installs_manimpango_build_deps() -> None:
+    content = (ROOT / "Dockerfile.e2e").read_text()
+
+    assert "pkg-config" in content
+    assert "libpango1.0-dev" in content
+
+
+def test_e2e_dockerfile_reuses_frontend_node_runtime() -> None:
+    content = (ROOT / "Dockerfile.e2e").read_text()
+
+    assert "FROM node:25-bookworm-slim AS node" in content
+    assert "COPY --from=node /usr/local/bin/node /usr/local/bin/node" in content
+    assert "COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules" in content
+    assert "ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm" in content
+    assert "ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx" in content
+    assert "nodejs" not in content
 
 
 def test_justfile_exposes_test_e2e_recipe() -> None:
     content = (ROOT / "justfile").read_text()
 
     assert "test-e2e:" in content
-    assert "docker compose -f docker-compose.e2e.yml run --rm e2e-runner" in content
+    assert (
+        "docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e-runner"
+        in content
+    )
+    assert "docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v" in content
 
 
 def test_readme_documents_test_e2e_workflow() -> None:
@@ -167,5 +232,24 @@ def test_readme_documents_test_e2e_workflow() -> None:
     assert "just test-e2e" in content
     assert "OPENAI_API_KEY" in content
     assert "CODESTRAL_API_KEY" in content
-    assert "host Docker socket" in content
+    assert "ephemeral compose project" in content
+    assert "e2e-runner" in content
+    assert "shared compose network" in content
+    assert "3901" in content
     assert "assistant-friendly" in content
+
+
+def test_frontend_dockerignore_excludes_local_build_artifacts() -> None:
+    content = (ROOT / "layersense_frontend" / ".dockerignore").read_text()
+
+    assert "node_modules" in content
+    assert "dist" in content
+    assert ".vite" in content
+
+
+def test_readme_documents_frontend_dependency_refresh_after_lockfile_changes() -> None:
+    content = (ROOT / "README.md").read_text()
+
+    assert "package-lock.json" in content
+    assert "docker compose down -v" in content
+    assert "frontend_node_modules" in content

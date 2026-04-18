@@ -13,22 +13,16 @@ if [ -z "${CODESTRAL_API_KEY:-}" ]; then
 fi
 
 workspace_root=${LAYERSENSE_E2E_WORKSPACE_ROOT:-/workspace}
-project_name="layersense-e2e-$(date +%s)-$$"
-compose_file="${workspace_root}/docker-compose.e2e.inner.yml"
 
-cleanup() {
-    docker compose -f "${compose_file}" -p "${project_name}" logs || true
-    docker compose -f "${compose_file}" -p "${project_name}" down -v || true
+log_pwd() {
+    label=$1
+    printf '%s: %s\n' "${label}" "$(pwd)"
 }
-
-trap cleanup EXIT
-
-docker compose -f "${compose_file}" -p "${project_name}" up --build -d
 
 wait_for_http() {
     url=$1
     name=$2
-    attempts=${3:-60}
+    attempts=${3:-120}
     i=0
 
     while [ "${i}" -lt "${attempts}" ]; do
@@ -40,22 +34,26 @@ wait_for_http() {
     done
 
     printf '%s\n' "Timed out waiting for ${name} at ${url}" >&2
-    docker compose -f "${compose_file}" -p "${project_name}" ps >&2 || true
     return 1
 }
 
-wait_for_http "http://host.docker.internal:3000/" "frontend root"
-wait_for_http "http://host.docker.internal:8000/health" "agent health"
-wait_for_http "http://host.docker.internal:8001/health" "controller health"
+wait_for_http "http://frontend/" "frontend root"
+wait_for_http "http://agent:8000/health" "agent health"
+wait_for_http "http://controller:8001/health" "controller health"
 
-export LAYERSENSE_SMOKE_FRONTEND_BASE="http://host.docker.internal:3000"
-export LAYERSENSE_SMOKE_AGENT_BASE="http://host.docker.internal:8000"
-export LAYERSENSE_SMOKE_CONTROLLER_BASE="http://host.docker.internal:8001"
-export LAYERSENSE_SMOKE_CONTROLLER_WS_URL="ws://host.docker.internal:8001/ws"
+export LAYERSENSE_SMOKE_FRONTEND_BASE="http://frontend"
+export LAYERSENSE_SMOKE_AGENT_BASE="http://agent:8000"
+export LAYERSENSE_SMOKE_CONTROLLER_BASE="http://controller:8001"
+export LAYERSENSE_SMOKE_CONTROLLER_WS_URL="ws://controller:8001/ws"
 export LAYERSENSE_SMOKE_REPO_ROOT="${workspace_root}"
 
+log_pwd "before uv sync"
 uv sync --all-packages
+log_pwd "after uv sync"
 npm --prefix layersense_frontend install
+log_pwd "after npm install"
 uv run --all-packages pytest -m "not smoke"
+log_pwd "after python tests"
 npm --prefix layersense_frontend test
+log_pwd "after frontend tests"
 uv run --all-packages pytest tests/smoke/test_dev_stack_smoke.py -m smoke
