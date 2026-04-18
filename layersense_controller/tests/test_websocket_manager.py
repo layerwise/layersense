@@ -3,6 +3,8 @@ import json
 import pytest
 from layersense_controller.websocket_manager import WebSocketManager
 
+pytestmark = [pytest.mark.unit, pytest.mark.ai]
+
 
 class FakeWebSocket:
     def __init__(self, should_fail: bool = False) -> None:

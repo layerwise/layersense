@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
 from layersense_controller.watcher import SceneFileHandler
+
+pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
 
 def test_handle_ignores_non_python_files(monkeypatch) -> None:

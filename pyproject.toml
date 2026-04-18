@@ -110,4 +110,11 @@ warn_return_any = true
 
 [tool.pytest.ini_options]
 testpaths = ["layersense_agent/tests", "layersense_controller/tests", "tests"]
-markers = ["smoke: black-box smoke tests against a running local stack"]
+minversion = "7.0"
+addopts = "-ra -q --asyncio-mode=auto --strict-markers"
+markers = [
+    "unit: fast isolated tests",
+    "integration: cassette-backed boundary tests",
+    "e2e: live-stack end-to-end tests",
+    "ai: assistant-authored tests",
+]

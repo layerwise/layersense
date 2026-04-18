@@ -1,6 +1,9 @@
 import importlib
 
+import pytest
 from fastapi.testclient import TestClient
+
+pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
 
 def test_app_health_endpoint_returns_ok() -> None:

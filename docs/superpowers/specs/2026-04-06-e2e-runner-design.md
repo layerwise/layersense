@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a new `just test-e2e` entrypoint that lets coding assistants run the full test suite, including smoke tests, through a single reproducible containerized runner that manages the application stack lifecycle itself.
+Add a new `just test-e2e` entrypoint that lets coding assistants run the full test suite, including live-stack `e2e` tests, through a single reproducible containerized runner that manages the application stack lifecycle itself.
 
 ## Decision
 
@@ -33,10 +33,10 @@ This is intentionally the simpler option. It gives assistants a hermetic command
 ## Scope
 
 - Add `just test-e2e` as a new command.
-- Keep `just smoke` unchanged as the existing host-driven workflow.
+- Keep `just e2e` unchanged as the existing host-driven workflow.
 - Use real model providers inside the e2e path.
 - Pass required API keys through from the caller environment into the runner and inner stack.
-- Run the non-smoke Python tests, frontend tests, and smoke tests from one orchestrated flow.
+- Run the non-`e2e` Python tests, frontend tests, and live-stack `e2e` tests from one orchestrated flow.
 
 ## Non-Goals
 
@@ -86,7 +86,7 @@ The runner assigns a unique compose project name per invocation so concurrent ru
 4. Wait for frontend, agent, and controller readiness.
 5. Run the default Python test suite excluding smoke.
 6. Run frontend tests.
-7. Run the smoke suite against the runner-managed stack.
+7. Run the `e2e` suite against the runner-managed stack.
 8. Collect nested stack logs on failure and optionally on success.
 9. Tear down the nested stack with volumes.
 10. Exit with the combined test result.
@@ -95,7 +95,7 @@ Smoke tests should run last because they are the slowest and depend on a healthy
 
 ## Smoke-Test Configuration Changes
 
-The current smoke suite assumes:
+The current `e2e` suite assumes:
 
 - `localhost:3000`
 - `localhost:8000`
@@ -106,7 +106,7 @@ That is too brittle for worktrees and for the runner-managed environment.
 
 ### Required Change
 
-Make the smoke suite environment-driven while preserving current defaults.
+Make the `e2e` suite environment-driven while preserving current defaults.
 
 Base URLs should continue to default to the existing localhost values, but allow overrides through environment variables set by the runner.
 
@@ -124,7 +124,7 @@ This fixes nested git worktree resolution because `--show-toplevel` returns the 
 
 Keep `_scenes_dir()` derived from `_repo_root()` unless `LAYERSENSE_SMOKE_SCENES_DIR` is explicitly set.
 
-This preserves `just smoke` behavior while allowing the e2e runner to inject deterministic mounted paths.
+This preserves `just e2e` behavior while allowing the e2e runner to inject deterministic mounted paths.
 
 ## Worktree Compatibility
 
@@ -183,7 +183,7 @@ Expected additions:
 Expected modifications:
 
 - `justfile`
-- `tests/smoke/test_dev_stack_smoke.py`
+- `tests/e2e/test_dev_stack_e2e.py`
 - `README.md`
 - any test configuration files needed to support the new command cleanly
 
@@ -191,10 +191,10 @@ Expected modifications:
 
 Verification should prove both old and new workflows remain valid:
 
-- `just smoke` still works against an already-running host stack
+- `just e2e` still works against an already-running host stack
 - `just test` still excludes smoke
 - `just test-e2e` provisions the stack, runs all tests, and tears it down
-- smoke tests work correctly from nested worktrees
+- `e2e` tests work correctly from nested worktrees
 
 ## Risks
 
@@ -206,5 +206,5 @@ Verification should prove both old and new workflows remain valid:
 
 - Coding assistants can run `just test-e2e` without inspecting or managing an already-running stack.
 - The command fully owns stack startup, readiness checks, test execution, log collection, and teardown.
-- The smoke suite works both in normal checkouts and nested git worktrees.
-- `just smoke` remains unchanged for the existing human workflow.
+- The `e2e` suite works both in normal checkouts and nested git worktrees.
+- `just e2e` remains unchanged for the existing human workflow.

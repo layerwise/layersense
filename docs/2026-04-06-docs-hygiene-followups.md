@@ -6,10 +6,10 @@
 - `docs/ROADMAP.md`
 - `docs/2026-03-31-docs-hygiene-followups.md`
 - `justfile`
-- active smoke and verification commands already exercised during implementation:
+- active live-stack e2e and verification commands already exercised during implementation:
   - `just lint`
   - `just test`
-  - `uv run --all-packages pytest tests/smoke/test_dev_stack_smoke.py -m smoke -q`
+  - `uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e -q`
 
 ## Patched Now
 

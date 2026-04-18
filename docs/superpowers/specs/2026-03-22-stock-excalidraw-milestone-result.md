@@ -101,9 +101,9 @@ Outcome: this list is fully closed.
 
 ## Full-Stack Outlook (Next Steps, Non-UI-Focused)
 
-1. Full E2E smoke validation against running agent + controller
-    - Dedicated `just smoke` coverage now exists for the local stack.
-    - Remaining work is to keep the controller and agent paths passing reliably under that smoke suite.
+1. Full E2E validation against running agent + controller
+    - Dedicated `just e2e` coverage now exists for the local stack.
+    - Remaining work is to keep the controller and agent paths passing reliably under that `e2e` suite.
 
 2. Watcher/controller hardening pass for the deferred manual-edit rerender workflow
    - Handle non-2xx `/render` responses explicitly.
