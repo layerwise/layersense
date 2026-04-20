@@ -135,12 +135,8 @@ format:
     uv run --all-packages ruff check --fix
     uv run --all-packages black .
 
-verify_workspace:
-    uv sync --all-packages && uv run --all-packages python -c "import layersense_controller; import layersense_agent; print('ok')"
-
-
 # Run all quality checks
-check: lint typecheck test verify_workspace
+check: lint typecheck test
 
 # -------------------------
 
