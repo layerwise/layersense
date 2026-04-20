@@ -21,8 +21,14 @@ When producing code, use modern Python and honour the existing code style. Use `
 
 In a root `justfile`, the following commands are available:
 - `just setup`: Sync all packages and install dependencies
-- `just test`: Run the default automated test suite (excludes live-stack `e2e` tests)
+- `just test`: Run the default automated test suite (Python `unit` plus frontend tests; excludes live-stack `e2e` tests)
+- `just test_python`: Run Python `unit` tests only
+- `just test_python_unit`: Run Python `unit` tests only
+- `just test_python_integration`: Run Python `integration` tests in replay mode
+- `just test_python_integration_refresh`: Run Python `integration` tests in record mode
+- `just test_python_e2e`: Select Python `e2e` tests explicitly
 - `just e2e`: Run black-box end-to-end tests against an already-running local stack
+- `just test-e2e`: Launch an ephemeral compose stack and run the full suite, including live-stack `e2e` tests
 - `just typecheck`: Run mypy type checks
 - `just lint`: Run ruff and black checks
 - `just format`: Run ruff and black fixes
@@ -86,6 +92,7 @@ than no docs.
 ## Autonomous linting and testing
 - Verify the codebase by running `just lint` and `just test` in the project or workspace root.
 - Use `just e2e` when you need live-stack verification against the local running services.
+- Use `just test-e2e` when you need a reproducible assistant-friendly full-stack run that provisions its own ephemeral compose project.
 - Format Python code with `just format`.
 - When encountering lint warnings: STOP and present options to the user
   - Do not automatically add #[allow] directives or similar suppression

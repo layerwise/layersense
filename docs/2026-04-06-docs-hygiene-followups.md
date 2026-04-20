@@ -22,13 +22,13 @@
 
 ## Historical Docs Left As Historical Context
 
-- `docs/plans/2026-03-07-layersense-implementation-plan.md`
-- `docs/plans/2026-03-29-manim-config-artifact-layout-implementation-plan.md`
-- `docs/plans/2026-03-07-layersense-architecture-design.md`
+- `docs/superpowers/specs/2026-03-07-layersense-implementation-plan.md`
+- `docs/superpowers/specs/2026-03-29-manim-config-artifact-layout-implementation-plan.md`
+- `docs/superpowers/specs/2026-03-07-layersense-architecture-design.md`
 
 These documents still mention the older top-level `<hash>_preview.mp4` / `<hash>_final.mp4` cache model in places. They appear to be historical design or implementation planning artifacts rather than the active source of truth, so they were not rewritten in this hygiene pass.
 
 ## Remaining Risks / TODO-Later
 
-- If older plan docs continue to be referenced as current implementation truth, they should be relabeled more explicitly as historical or superseded.
+- If older spec/plan docs continue to be referenced as current implementation truth, they should be relabeled more explicitly as historical or superseded.
 - The non-generated/manual scene UUID story is intentionally provisional. Active docs should eventually describe the explicit reference UUID mechanism once that exists.

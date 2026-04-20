@@ -1,5 +1,7 @@
 # Python Testing Taxonomy Design For LayerSense
 
+> Historical rollout note: this design captures the April 18 taxonomy rollout rationale. Current command and contributor guidance should be taken from `README.md`, `AGENTS.md`, `justfile`, and `pyproject.toml`.
+
 ## Goal
 
 Adopt a clean pytest taxonomy and execution model for LayerSense so contributors can distinguish fast isolated tests from cassette-backed boundary coverage and live-stack end-to-end coverage.
@@ -12,7 +14,7 @@ This rollout imports the core design from the 2026-04-09 testing taxonomy plans,
 - Root commands already include partial taxonomy support in `justfile`, but the configuration and suite classification are inconsistent.
 - Current Python packages are `layersense_agent` and `layersense_controller`.
 - Existing package tests are primarily unit-style because they use monkeypatching, in-process FastAPI clients, and subprocess mocking.
-- The repo also has live-stack tests currently stored under `global_tests/smoke/test_dev_stack_smoke.py` and selected with a `smoke` marker.
+- The repo's live-stack tests are selected with the `e2e` marker and documented through the root `justfile` command surface.
 - The repo already includes `pytest-recording`, which should be used to implement cassette-backed `integration` coverage.
 
 ## Decision
@@ -31,7 +33,7 @@ Use a single `integration` marker with two execution modes:
 
 The default Python test entrypoint should run `unit` only.
 
-The current `smoke` naming should be removed immediately. In LayerSense, those tests become `e2e` tests everywhere: marker names, commands, docs, and paths.
+LayerSense uses `e2e` as the live-stack taxonomy term everywhere: marker names, commands, docs, and paths.
 
 ## Marker Taxonomy
 
