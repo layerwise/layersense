@@ -7,11 +7,6 @@ if [ -z "${OPENAI_API_KEY:-}" ]; then
     exit 1
 fi
 
-if [ -z "${CODESTRAL_API_KEY:-}" ]; then
-    printf '%s\n' "CODESTRAL_API_KEY must be set for just test-e2e" >&2
-    exit 1
-fi
-
 workspace_root=${LAYERSENSE_E2E_WORKSPACE_ROOT:-/workspace}
 
 log_pwd() {

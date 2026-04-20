@@ -103,8 +103,14 @@ This starts an ephemeral compose project built from `docker-compose.yml` plus `d
 
 Notes for `just test-e2e`:
 
-- Export `OPENAI_API_KEY` in your shell before running it.
-- Export `CODESTRAL_API_KEY` in your shell before running it.
+- Store `OPENAI_API_KEY` in macOS Keychain under service `layersense-openai-api-key` before running it.
+- One way to add or update that entry is:
+
+```bash
+security add-generic-password -U -a "$USER" -s "layersense-openai-api-key" -w "<your-openai-api-key>"
+```
+
+- `just test-e2e` loads the key automatically via `just _export-secrets`.
 - The ephemeral compose project publishes the stack on `3901`, `8900`, and `8901` to avoid colliding with the default local dev stack ports.
 - The `e2e-runner` talks to the services over the shared compose network by service name rather than via host-local ports.
 - It is meant to give coding assistants a single command that does not depend on them inspecting an already-running local stack.
@@ -156,7 +162,6 @@ The detailed taxonomy rationale and rollout notes live in:
 Notes:
 
 - Export `OPENAI_API_KEY` in your shell before running `just docker`.
-- Export `CODESTRAL_API_KEY` in your shell before running `just docker`
 - The current compose stack intentionally omits Redis because the implemented local flow does not use it.
 - Shared host-mounted directories are used for scene and artifact exchange:
   - `./layersense_artifacts/code`

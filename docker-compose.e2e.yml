@@ -24,7 +24,6 @@ services:
     working_dir: /workspace
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      CODESTRAL_API_KEY: ${CODESTRAL_API_KEY}
     depends_on:
       - frontend
       - agent

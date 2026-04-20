@@ -1,9 +1,0 @@
-OPENAI_API_KEY_VALUE="$(security find-generic-password \
-  -a "$USER" \
-  -s "layersense-openai-api-key" \
-  -w 2>/dev/null)" || {
-  echo "Missing macOS Keychain item: layersense-openai-api-key" >&2
-  exit 1
-}
-export OPENAI_API_KEY="$OPENAI_API_KEY_VALUE"
-unset OPENAI_API_KEY_VALUE

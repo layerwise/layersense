@@ -23,7 +23,6 @@ services:
       - "8000:8000"
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      CODESTRAL_API_KEY: ${CODESTRAL_API_KEY}
       LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
     volumes:
       - ./layersense_artifacts/code:/layersense_artifacts/code

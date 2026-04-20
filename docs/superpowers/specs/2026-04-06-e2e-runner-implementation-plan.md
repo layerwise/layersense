@@ -139,7 +139,7 @@ Add `docker-compose.e2e.yml` with one service:
 - mount `/var/run/docker.sock`
 - mount the repo at a stable path like `/workspace`
 - set `working_dir: /workspace`
-- pass through `OPENAI_API_KEY` and `CODESTRAL_API_KEY`
+- pass through `OPENAI_API_KEY`
 - optionally pass through a workspace-root variable if helpful for the entrypoint
 
 Create `Dockerfile.e2e` with the minimal toolchain needed:

@@ -7,6 +7,20 @@
 default:
     @just --list
 
+[private]
+_export-secrets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    openai_api_key="$(security find-generic-password -a "$USER" -s "layersense-openai-api-key" -w 2>/dev/null)" || {
+        printf '%s\n' "OPENAI_API_KEY not found in macOS Keychain service layersense-openai-api-key" >&2
+        exit 1
+    }
+    if [[ -z "$openai_api_key" ]]; then
+        printf '%s\n' "OPENAI_API_KEY not found in macOS Keychain service layersense-openai-api-key" >&2
+        exit 1
+    fi
+    printf 'export OPENAI_API_KEY=%q\n' "$openai_api_key"
+
 # -------------------------
 
 # Dev Workflow
@@ -113,14 +127,18 @@ test_python_e2e environment="puc4web":
 
 # Run all tests (Python + frontend)
 test:
-    just test_python_unit
+    just test_python
     npm --prefix layersense_frontend test
 
 e2e:
     uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e
 
 test-e2e:
-    docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e-runner ; docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v
+    #!/usr/bin/env bash
+    set -euo pipefail
+    eval "$(just _export-secrets)"
+    trap 'docker compose -f docker-compose.yml -f docker-compose.e2e.yml down -v' EXIT
+    docker compose -f docker-compose.yml -f docker-compose.e2e.yml up --build --abort-on-container-exit --exit-code-from e2e-runner
 
 # Run type checks
 typecheck:
