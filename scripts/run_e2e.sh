@@ -41,19 +41,19 @@ wait_for_http "http://frontend/" "frontend root"
 wait_for_http "http://agent:8000/health" "agent health"
 wait_for_http "http://controller:8001/health" "controller health"
 
-export LAYERSENSE_SMOKE_FRONTEND_BASE="http://frontend"
-export LAYERSENSE_SMOKE_AGENT_BASE="http://agent:8000"
-export LAYERSENSE_SMOKE_CONTROLLER_BASE="http://controller:8001"
-export LAYERSENSE_SMOKE_CONTROLLER_WS_URL="ws://controller:8001/ws"
-export LAYERSENSE_SMOKE_REPO_ROOT="${workspace_root}"
+export LAYERSENSE_E2E_FRONTEND_BASE="http://frontend"
+export LAYERSENSE_E2E_AGENT_BASE="http://agent:8000"
+export LAYERSENSE_E2E_CONTROLLER_BASE="http://controller:8001"
+export LAYERSENSE_E2E_CONTROLLER_WS_URL="ws://controller:8001/ws"
+export LAYERSENSE_E2E_REPO_ROOT="${workspace_root}"
 
 log_pwd "before uv sync"
 uv sync --all-packages
 log_pwd "after uv sync"
 npm --prefix layersense_frontend install
 log_pwd "after npm install"
-uv run --all-packages pytest -m "not smoke"
+uv run --all-packages pytest -m "not e2e"
 log_pwd "after python tests"
 npm --prefix layersense_frontend test
 log_pwd "after frontend tests"
-uv run --all-packages pytest tests/smoke/test_dev_stack_smoke.py -m smoke
+uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e
