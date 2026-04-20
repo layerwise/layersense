@@ -1,5 +1,7 @@
 # Python Testing Taxonomy Rollout Implementation Plan
 
+> Historical rollout note: this plan captures the intended April 18 taxonomy migration. The current repo now uses `e2e` terminology in active docs and command guidance; treat this file as rollout history rather than the canonical quick-start.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Roll out LayerSense's Python test taxonomy with `unit`, `integration`, `e2e`, and `ai`, rename `smoke` to `e2e`, and add conservative VCR scaffolding without depending on live refresh runs until the end.

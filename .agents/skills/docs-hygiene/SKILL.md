@@ -66,7 +66,7 @@ Test commands that the docs present as current or recommended, when safe and ava
 
 Typical checks:
 
-- repo quality commands such as `just lint`, `just test`, `just verify_workspace`
+- repo quality commands such as `just lint`, `just test`, `just format`
 - documented frontend commands such as `npm --prefix layersense_frontend run build`
 - startup/health commands if they are central to the doc claim and safe to run
 
@@ -136,7 +136,7 @@ Use these heuristics aggressively:
 - Keeping stale sections with weak caveats instead of deleting them
 - Trusting plan documents as current truth without checking the repo
 - Forgetting to verify linked paths after moving files
-- Updating only `README.md` while leaving contradictory `docs/plans/*` files intact
+- Updating only `README.md` while leaving contradictory `docs/**/*` files intact
 - Claiming docs are clean without testing at least the core documented commands
 
 ## Minimum Verification Before Claiming Success
@@ -145,7 +145,6 @@ Run the strongest relevant commands you can safely justify from the current docs
 
 - `just lint`
 - `just test`
-- `just verify_workspace`
 
 If docs reference narrower commands as part of active guidance, run those too when feasible.
 

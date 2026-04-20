@@ -5,7 +5,7 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 ## Start Here
 
 - Read `docs/ROADMAP.md` for the current project vision, doc map, and milestone status.
-- Read `docs/plans/2026-03-07-layersense-architecture-design.md` for the canonical system design.
+- Read `docs/superpowers/specs/2026-03-07-layersense-architecture-design.md` for the canonical system design.
 
 ## Current Status
 
@@ -99,7 +99,7 @@ Run the assistant-friendly reproducible end-to-end path with:
 just test-e2e
 ```
 
-This starts an ephemeral compose project built from `docker-compose.yml` plus `docker-compose.e2e.yml`. That project contains `frontend`, `agent`, `controller`, and `e2e-runner` on a shared compose network, and the runner executes the full test suite including smoke tests.
+This starts an ephemeral compose project built from `docker-compose.yml` plus `docker-compose.e2e.yml`. That project contains `frontend`, `agent`, `controller`, and `e2e-runner` on a shared compose network, and the runner executes the full test suite including live-stack `e2e` tests.
 
 Notes for `just test-e2e`:
 
@@ -127,6 +127,31 @@ Notes:
 - `just e2e` is separate from `just test`.
 - It probes the real local service chain at `localhost:3000`, `localhost:8000`, and `localhost:8001`.
 - It is intended to surface real runtime regressions, so a failing `e2e` run can still indicate useful progress if it points at a concrete controller or agent bug.
+
+## Testing Taxonomy
+
+LayerSense uses four semantic Python pytest markers:
+
+- `unit`: fast isolated tests
+- `integration`: cassette-backed boundary tests
+- `e2e`: live-stack end-to-end tests
+- `ai`: assistant-authored tests
+
+Useful commands:
+
+- `just test`: default repo verification for Python unit tests plus frontend tests
+- `just test_python`: Python `unit` tests only
+- `just test_python_unit`: explicit Python `unit` selection
+- `just test_python_integration`: Python `integration` tests in replay mode
+- `just test_python_integration_refresh`: Python `integration` tests in record mode
+- `just test_python_e2e`: Python `e2e` marker selection
+- `just e2e`: black-box live-stack `e2e` tests against an already-running local stack
+- `just test-e2e`: assistant-friendly ephemeral compose run of the full suite, including `e2e`
+
+The detailed taxonomy rationale and rollout notes live in:
+
+- `docs/superpowers/specs/2026-04-18-python-testing-taxonomy-design.md`
+- `docs/superpowers/specs/2026-04-18-python-testing-taxonomy-rollout.md`
 
 Notes:
 

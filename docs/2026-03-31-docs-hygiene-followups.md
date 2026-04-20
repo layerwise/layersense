@@ -22,13 +22,13 @@ Supersedes: `docs/2026-03-28-docs-hygiene-followups.md`
 - Updated active Manim-config docs to reflect that preview/final config defaults are now packaged inside `layersense_controller`, not stored as repo-root runtime files.
 - Marked the original March 7 render-path plan section as historical so it no longer reads like current implementation guidance.
 - Added a concrete raw artifact tree example and a concise packaged Manim config contract section to `README.md`.
-- Added a clear historical warning to `docs/plans/original_architecture_design.md`.
-- Updated `docs/plans/2026-03-22-stock-excalidraw-milestone-result.md` so its next-step notes no longer describe watcher-first validation as the default loop.
+- Added a clear historical warning to `docs/original_architecture_design.md`.
+- Updated `docs/superpowers/specs/2026-03-22-stock-excalidraw-milestone-result.md` so its next-step notes no longer describe watcher-first validation as the default loop.
 - Consolidated the earlier 2026-03-28 docs follow-up report into this file.
 
 ## Remaining Stale Or Risky Items
 
-- Several historical plans in `docs/plans/` still describe older artifact lookup behavior based on stdout parsing or generic `GeneratedScene.mp4` discovery. They are now safer because the most misleading sections are relabeled, but they still should not be treated as current implementation docs.
+- Several historical specs in `docs/superpowers/specs/` still describe older artifact lookup behavior based on stdout parsing or generic `GeneratedScene.mp4` discovery. They are now safer because the most misleading sections are relabeled, but they still should not be treated as current implementation docs.
 
 ## Needs Code Or Product Decisions
 
