@@ -19,7 +19,7 @@ dependencies = [
     "layersense_agent",
     "layersense_controller",
     "dotenv==0.9.9",
-    "fastapi[standard]==0.116.1",
+    "fastapi[standard]==0.136.1",
     "langchain==1.2.10",
     "langchain-openai==1.1.10",
     "langgraph==1.0.10",
