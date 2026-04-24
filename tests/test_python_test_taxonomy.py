@@ -14,7 +14,7 @@ def _python_test_modules() -> list[Path]:
     return sorted(
         list((root / "layersense_controller" / "tests").glob("test_*.py"))
         + list((root / "layersense_agent" / "tests").glob("test_*.py"))
-        + list((root / "tests" ).glob("test_*.py"))
+        + list((root / "tests").glob("test_*.py"))
     )
 
 

@@ -2,3 +2,4 @@
 - Docker containers might run in the root worktree, from a different branch, or at the user's discretion.
 - when running live-stack e2e tests or verifying code against the dev stack, always coordinate with the user.
 - when a rollout includes live integration refresh or e2e verification, delay those runs until non-live setup, classification, and docs work are complete unless the user explicitly asks for immediate live verification.
+- when the user explicitly waives extra process overhead for a small change, comply and proceed directly instead of forcing spec-writing or additional skill-driven ceremony.

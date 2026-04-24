@@ -15,14 +15,15 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 
-# Core runtime dependencies
 dependencies = [
+    "fastapi[standard]==0.136.1",
     "watchdog==6.0.0",
     "httpx==0.28.1",
     "pydantic==2.12.5",
     "pydantic-settings==2.10.1",
     "manim==0.20.1",
-]
+    "uvicorn==0.35.0",
+] # Core runtime dependencies
 
 [build-system]
 # ---- Build System ----

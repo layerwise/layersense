@@ -16,7 +16,12 @@ classifiers = [
 ]
 
 # Core runtime dependencies
-dependencies = []
+dependencies = [
+    "fastapi[standard]==0.136.1",
+    "openai-agents==0.10.5",
+    "pydantic==2.12.5",
+    "uvicorn==0.35.0",
+]
 
 [build-system]
 # ---- Build System ----
