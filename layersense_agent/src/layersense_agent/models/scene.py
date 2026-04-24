@@ -1,6 +1,6 @@
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, constr
+from pydantic import BaseModel, ConfigDict, Field, RootModel, StringConstraints
 
 HexColor = Annotated[
     str,
@@ -9,52 +9,54 @@ HexColor = Annotated[
     ),
 ]
 
-type Shape = Literal[
-    "rectangle",
-    "circle",
-    "ellipse",
-    "freedraw",
-]
 
-
-class Element(BaseModel):
+class BaseElement(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str
-    type: Shape
-    x: int  # px
-    y: int  # px
-    width: int  # px
-    height: int  # px
+    x: int
+    y: int
+    width: int
+    height: int
     angle: float
     strokeColor: HexColor
-    backgroundColor: HexColor | str
+    backgroundColor: str
     fillStyle: str
     strokeWidth: int
     strokeStyle: str
-    roughness: float
     opacity: float
-    groupIds: list[str] = Field(exclude=True)  # exclude from serialize
-    frameId: str = Field(exclude=True)  # exclude from serialize
-    roundness: Any | None = None
-    points: list[list[float]] | None = None
 
 
-class AppState(BaseModel):
-    gridSize: int
-    gridStep: int
-    gridModeEnabled: bool
-    viewBackgroundColor: HexColor
+class RectangleElement(BaseElement):
+    type: Literal["rectangle"]
 
 
-class ExcalidrawScene(BaseModel):
-    type: Literal["excalidraw"] = "excalidraw"
-    version: int = 2
-    source: str = "http://localhost:3000"
-    elements: list[Element]
-    appState: AppState
-    files: dict[str, Any]
+class EllipseElement(BaseElement):
+    type: Literal["ellipse"]
 
 
-def validate_scene(payload: dict[str, Any]) -> ExcalidrawScene:
-    return ExcalidrawScene.model_validate(payload)
+class FreedrawElement(BaseElement):
+    type: Literal["freedraw"]
+    points: list[list[float]]
+
+
+NormalizedElement = Annotated[
+    RectangleElement | EllipseElement | FreedrawElement,
+    Field(discriminator="type"),
+]
+
+
+class NormalizedAppState(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    viewBackgroundColor: HexColor | None = None
+
+
+class NormalizedFiles(RootModel[dict[str, object]]):
+    pass
+
+
+class NormalizedScene(BaseModel):
+    elements: list[NormalizedElement]
+    appState: NormalizedAppState
+    files: NormalizedFiles

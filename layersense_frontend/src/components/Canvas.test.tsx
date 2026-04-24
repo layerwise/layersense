@@ -1,7 +1,10 @@
+import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types'
+import type { AppState, BinaryFiles } from '@excalidraw/excalidraw/types'
 import { createRef } from 'react'
 import { render } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
+import type { ExcalidrawSceneSnapshot } from '../types'
 import { Canvas, type CanvasHandle } from './Canvas'
 
 const mockApi = {
@@ -36,14 +39,33 @@ describe('Canvas', () => {
     render(<Canvas ref={ref} />)
 
     const snapshot = ref.current?.getSceneSnapshot()
+    const sceneElements = mockApi.getSceneElements.mock.results[0]?.value
 
     expect(snapshot).toEqual({
       elements: [{ id: 'element-1' }],
       appState: { viewBackgroundColor: '#fff' },
       files: { file1: { id: 'file1' } },
     })
+    expect(snapshot?.elements).not.toBe(sceneElements)
     expect(mockApi.getSceneElements).toHaveBeenCalledTimes(1)
     expect(mockApi.getAppState).toHaveBeenCalledTimes(1)
     expect(mockApi.getFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts a typed snapshot shape', () => {
+    const snapshot: ExcalidrawSceneSnapshot = {
+      elements: [],
+      appState: {},
+      files: {},
+    }
+
+    const typedElements: readonly ExcalidrawElement[] = snapshot.elements
+    const typedAppState: Partial<AppState> = snapshot.appState
+    const typedFiles: BinaryFiles = snapshot.files
+
+    expect(snapshot.elements).toEqual([])
+    expect(typedElements).toEqual([])
+    expect(typedAppState).toEqual({})
+    expect(typedFiles).toEqual({})
   })
 })

@@ -1,7 +1,10 @@
+import type { ExcalidrawElement } from '@excalidraw/excalidraw/element/types'
+import type { AppState, BinaryFiles } from '@excalidraw/excalidraw/types'
+
 export type ExcalidrawSceneSnapshot = {
-  elements: unknown[]
-  appState: Record<string, unknown>
-  files: Record<string, unknown>
+  elements: readonly ExcalidrawElement[]
+  appState: Partial<AppState>
+  files: BinaryFiles
 }
 
 export type AnimationRequest = {

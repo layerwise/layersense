@@ -4,9 +4,10 @@ from pathlib import Path
 from uuid import uuid4
 
 from agents import Runner
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from layersense_agent.agents.agent import ManimAgentContext, manim_generator, strip_code_fences
 from layersense_agent.models.base import AnimationCreatedResponse, AnimationInputs
+from layersense_agent.services.scene_normalizer import normalize_scene
 
 router = APIRouter()
 
@@ -23,7 +24,14 @@ async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
         json_example = json.dumps(json.load(f))
 
     context = ManimAgentContext(json_example=json_example)
-    scene_json = inputs.scene.model_dump_json()
+    try:
+        normalized_scene = normalize_scene(inputs.scene)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Scene must contain at least one supported element.",
+        ) from exc
+    scene_json = normalized_scene.model_dump_json()
     user_prompt = inputs.prompt + "\n" + scene_json
 
     result = await Runner.run(manim_generator, user_prompt, context=context)

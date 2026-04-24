@@ -4,14 +4,36 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from layersense_agent.agents.agent import strip_code_fences
 from layersense_agent.main import app
+from layersense_agent.services.scene_normalizer import normalize_scene
 
 pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
 FAKE_CODE = (
     "from manim import *\n\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass\n"
 )
-SCENE_PAYLOAD = {"elements": [], "appState": {}, "files": {}}
+SCENE_PAYLOAD = {
+    "elements": [
+        {
+            "id": "shape-1",
+            "type": "rectangle",
+            "x": 0,
+            "y": 0,
+            "width": 10,
+            "height": 10,
+            "angle": 0,
+            "strokeColor": "#000000",
+            "backgroundColor": "transparent",
+            "fillStyle": "solid",
+            "strokeWidth": 1,
+            "strokeStyle": "solid",
+            "opacity": 100,
+        }
+    ],
+    "appState": {},
+    "files": {},
+}
 
 
 def assert_animation_created(response_json: dict[str, str]) -> Path:
@@ -54,44 +76,48 @@ def test_create_animation_writes_file_from_scene_payload(client):
     runner_prompt = mock_runner.run.await_args.args[1]
     prompt_prefix, serialized_scene = runner_prompt.split("\n", maxsplit=1)
     assert prompt_prefix == "animate a circle"
-    assert json.loads(serialized_scene) == SCENE_PAYLOAD
+    assert json.loads(serialized_scene) == normalize_scene(SCENE_PAYLOAD).model_dump()
 
 
-def test_create_animation_preserves_unknown_top_level_scene_keys(client):
+def test_create_animation_normalizes_scene_before_generation(client):
     c, tmp_path, mock_runner = client
+    payload = {"prompt": "animate a circle", "scene": SCENE_PAYLOAD}
+
+    with patch(
+        "layersense_agent.api.v1.endpoints.animate_scene.normalize_scene"
+    ) as normalize_mock:
+        normalize_mock.return_value.model_dump_json.return_value = (
+            '{"elements":[],"appState":{},"files":{}}'
+        )
+
+        response = c.post("/api/v1/animation", json=payload)
+
+    assert response.status_code == 200
+    assert_animation_created(response.json())
+    normalize_mock.assert_called_once_with(payload["scene"])
+    runner_prompt = mock_runner.run.await_args.args[1]
+    assert '{"elements":[],"appState":{},"files":{}}' in runner_prompt
+
+
+def test_create_animation_rejects_effectively_empty_scene(client):
+    c, _, mock_runner = client
     payload = {
         "prompt": "animate a circle",
-        "scene": {
-            **SCENE_PAYLOAD,
-            "elements": [
-                {
-                    "id": "shape-1",
-                    "type": "rectangle",
-                    "customData": {"label": "keep me"},
-                }
-            ],
-            "unexpected": "value",
-        },
+        "scene": {"elements": [], "appState": {}, "files": {}},
     }
 
     response = c.post("/api/v1/animation", json=payload)
 
-    assert response.status_code == 200
-    assert_animation_created(response.json())
-    runner_prompt = mock_runner.run.await_args.args[1]
-    _, serialized_scene = runner_prompt.split("\n", maxsplit=1)
-    assert json.loads(serialized_scene) == payload["scene"]
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Scene must contain at least one supported element."}
+    mock_runner.run.assert_not_awaited()
 
 
 def test_strip_code_fences_removes_fences():
-    from layersense_agent.agents.agent import strip_code_fences
-
     wrapped = "```python\nfrom manim import *\n```"
     assert strip_code_fences(wrapped) == "from manim import *"
 
 
 def test_strip_code_fences_passthrough():
-    from layersense_agent.agents.agent import strip_code_fences
-
     plain = "from manim import *"
     assert strip_code_fences(plain) == "from manim import *"
