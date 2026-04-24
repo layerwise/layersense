@@ -17,7 +17,6 @@ classifiers = [
 
 # Core runtime dependencies
 dependencies = [
-    "fastapi[standard]==0.116.1",
     "watchdog==6.0.0",
     "httpx==0.28.1",
     "pydantic==2.12.5",

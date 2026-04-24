@@ -70,7 +70,7 @@ async def test_render_preview_uses_preview_config_and_nested_output_file_for_pro
     assert str(artifacts_dir / "scenes") in captured_args
     assert "--output_file" in captured_args
     assert "demo_project/preview/shots/scene_preview" in captured_args
-    assert Path(captured_kwargs["cwd"]) == Path(__file__).resolve().parents[1]
+    assert Path(captured_kwargs["cwd"]) == Path(__file__).resolve().parents[2]
     assert (
         target
         == artifacts_dir / "scenes" / "demo_project" / "preview" / "shots" / "scene_preview.mp4"

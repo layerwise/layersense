@@ -16,7 +16,7 @@ classifiers = [
 ]
 
 # Core runtime dependencies
-dependencies = ["openai-agents==0.10.5", "fastapi==0.116.1"]
+dependencies = []
 
 [build-system]
 # ---- Build System ----
