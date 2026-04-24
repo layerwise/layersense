@@ -8,7 +8,7 @@ This file is the docs entrypoint for collaborators. It gives a fast overview of 
 
 - The project is still early-stage, but the core architecture is now documented and partially implemented.
 - The backend services (`layersense_agent`, `layersense_controller`) and a stock-Excalidraw frontend exist in the repo.
-- The frontend interaction milestone is largely complete, but the full end-to-end stack still needs reliability validation and hardening.
+- The frontend interaction milestone is largely complete, and the agent now normalizes Excalidraw payloads into a typed internal scene contract, but the full end-to-end stack still needs reliability validation and hardening.
 
 ## Suggested Reading Order
 
@@ -72,6 +72,7 @@ This file is the docs entrypoint for collaborators. It gives a fast overview of 
 - **You need product context:** start with `docs/superpowers/specs/2026-03-07-layersense-architecture-design.md`
 - **You need full-stack implementation context:** read `docs/superpowers/specs/2026-03-07-layersense-implementation-plan.md`
 - **You need frontend context:** read both `docs/superpowers/specs/2026-03-16-frontend-stock-excalidraw-integration-plan.md` and `docs/superpowers/specs/2026-03-16-frontend-stock-excalidraw-implementation-plan.md`
+- **You need current Excalidraw payload hardening context:** read `docs/superpowers/specs/2026-04-24-excalidraw-model-specificity-design.md` and `docs/superpowers/plans/2026-04-24-excalidraw-model-specificity-implementation-plan.md`
 - **You need current milestone status:** read `docs/superpowers/specs/2026-03-22-stock-excalidraw-milestone-result.md`
 - **You are fixing reliability issues:** read the two `2026-03-09-*hardening-followups.md` files
 - **You are working on test layout or commands:** read the two `2026-04-18-python-testing-taxonomy-*.md` docs
