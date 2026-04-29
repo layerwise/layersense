@@ -14,10 +14,10 @@ class BaseElement(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str
-    x: int
-    y: int
-    width: int
-    height: int
+    x: float
+    y: float
+    width: float
+    height: float
     angle: float
     strokeColor: HexColor
     backgroundColor: str
