@@ -26,7 +26,27 @@ REQUEST_TIMEOUT_SECONDS = 10
 ANIMATION_REQUEST_TIMEOUT_SECONDS = 30
 RENDER_TIMEOUT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 1
-SCENE_PAYLOAD = {"elements": [], "appState": {}, "files": {}}
+SCENE_PAYLOAD = {
+    "elements": [
+        {
+            "id": "shape-1",
+            "type": "rectangle",
+            "x": 0,
+            "y": 0,
+            "width": 10,
+            "height": 10,
+            "angle": 0,
+            "strokeColor": "#000000",
+            "backgroundColor": "transparent",
+            "fillStyle": "solid",
+            "strokeWidth": 1,
+            "strokeStyle": "solid",
+            "opacity": 100,
+        }
+    ],
+    "appState": {},
+    "files": {},
+}
 KNOWN_GOOD_SCENE = """from manim import Dot, FadeIn, Scene
 
 
