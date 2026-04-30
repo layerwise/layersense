@@ -149,7 +149,14 @@ typecheck:
 lint:
     uv run --all-packages ruff check
     uv run --all-packages black --check .
-    docker compose config
+    OPENAI_API_KEY="dummy-api-key" docker compose config >/dev/null
+    OPENAI_API_KEY="dummy-api-key" docker compose -f docker-compose.yml -f docker-compose.debug.yml config >/dev/null
+    OPENAI_API_KEY="dummy-api-key" docker compose -f docker-compose.yml -f docker-compose.e2e.yml config >/dev/null
+
+lint-compose:
+    OPENAI_API_KEY="dummy-api-key" docker compose config
+    OPENAI_API_KEY="dummy-api-key" docker compose -f docker-compose.yml -f docker-compose.debug.yml config
+    OPENAI_API_KEY="dummy-api-key" docker compose -f docker-compose.yml -f docker-compose.e2e.yml config
 
 format:
     uv run --all-packages ruff check --fix
