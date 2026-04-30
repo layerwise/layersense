@@ -12,3 +12,4 @@ def test_workspace_packages_are_importable() -> None:
     """Guard the workspace package wiring through the normal unit-test loop."""
     assert importlib.import_module("layersense_agent") is not None
     assert importlib.import_module("layersense_controller") is not None
+    assert importlib.import_module("layersense_domain") is not None

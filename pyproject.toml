@@ -18,6 +18,7 @@ classifiers = [
 dependencies = [
     "layersense_agent",
     "layersense_controller",
+    "layersense_domain",
 ]
 
 [project.optional-dependencies]
@@ -48,9 +49,10 @@ dev = [
 [tool.uv.sources]
 layersense_agent = { workspace = true }
 layersense_controller = { workspace = true }
+layersense_domain = { workspace = true }
 
 [tool.uv.workspace]
-members = ["layersense_agent", "layersense_controller"]
+members = ["layersense_agent", "layersense_controller", "layersense_domain"]
 
 # ---- Tooling Configurations ----
 
