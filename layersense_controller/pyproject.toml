@@ -23,6 +23,7 @@ dependencies = [
     "pydantic-settings==2.10.1",
     "manim==0.20.1",
     "uvicorn==0.35.0",
+    "layersense_domain",          # Add the domain package as a dependency
 ] # Core runtime dependencies
 
 [build-system]
