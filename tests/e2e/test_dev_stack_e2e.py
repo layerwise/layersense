@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 
 import pytest
 import requests
+from layersense_domain.models import RenderOptions
 from requests import Response
 from websockets.sync.client import connect as websocket_connect
 
@@ -164,9 +165,18 @@ def _queue_render(scene_path: str, conversation_id: str) -> dict[str, Any]:
     return body
 
 
-def _content_hash_for_scene(scene_path: str) -> str:
+def _render_options_for_animation(animation: dict[str, Any]) -> dict[str, Any]:
+    render_options = animation.get("render_options")
+    if not isinstance(render_options, dict):
+        return RenderOptions().model_dump(mode="json", exclude_none=True)
+    return RenderOptions.model_validate(render_options).model_dump(mode="json", exclude_none=True)
+
+
+def _content_hash_for_scene(scene_path: str, render_options: dict[str, Any] | None = None) -> str:
     host_scene_path = _host_scene_path(scene_path)
-    return hashlib.sha256(host_scene_path.read_bytes()).hexdigest()
+    file_hash = hashlib.sha256(host_scene_path.read_bytes()).hexdigest()
+    options_json = json.dumps(render_options or {}, sort_keys=True)
+    return hashlib.sha256(f"{file_hash}:{options_json}".encode()).hexdigest()
 
 
 def _scene_uuid_for_scene(scene_path: str, conversation_id: str | None = None) -> str:
@@ -180,8 +190,10 @@ def _scene_uuid_for_scene(scene_path: str, conversation_id: str | None = None) -
     return scene_name
 
 
-def _artifact_candidates(scene_path: str) -> tuple[str, str]:
-    content_hash = _content_hash_for_scene(scene_path)
+def _artifact_candidates(
+    scene_path: str, render_options: dict[str, Any] | None = None
+) -> tuple[str, str]:
+    content_hash = _content_hash_for_scene(scene_path, render_options)
     return (
         urljoin(_controller_base(), f"/artifacts/by-hash/{content_hash}/preview"),
         urljoin(_controller_base(), f"/artifacts/by-hash/{content_hash}/final"),
@@ -254,9 +266,11 @@ def _wait_for_controller_terminal_event(websocket: Any, conversation_id: str) ->
 
 
 def _wait_for_artifacts(
-    scene_path: str, conversation_id: str | None = None
+    scene_path: str,
+    conversation_id: str | None = None,
+    render_options: dict[str, Any] | None = None,
 ) -> tuple[str, str, str, str]:
-    preview_url, final_url = _artifact_candidates(scene_path)
+    preview_url, final_url = _artifact_candidates(scene_path, render_options)
     scene_url, scene_preview_url = _scene_artifact_candidates(scene_path, conversation_id)
     deadline = time.monotonic() + RENDER_TIMEOUT_SECONDS
 
@@ -360,6 +374,7 @@ def test_controller_render_emits_terminal_websocket_event_for_known_good_scene()
 
 def test_api_chain_generate_to_render_completes() -> None:
     animation = _create_animation("Generate and render a simple smoke test animation.")
+    render_options = _render_options_for_animation(animation)
     with _controller_events() as websocket:
         render_response = _queue_render(animation["scene_path"], animation["conversation_id"])
         event = _wait_for_controller_terminal_event(websocket, animation["conversation_id"])
@@ -367,7 +382,7 @@ def test_api_chain_generate_to_render_completes() -> None:
     assert render_response["status"] in {"queued", "cached"}
     if event["type"] == "artifact_ready":
         scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
-            animation["scene_path"], animation["conversation_id"]
+            animation["scene_path"], animation["conversation_id"], render_options
         )
         assert event["preview_url"].startswith("/artifacts/by-hash/")
         assert event["final_url"].startswith("/artifacts/by-hash/")
@@ -378,7 +393,7 @@ def test_api_chain_generate_to_render_completes() -> None:
         return
     if event["type"] == "render_ready":
         scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
-            animation["scene_path"], animation["conversation_id"]
+            animation["scene_path"], animation["conversation_id"], render_options
         )
         assert event["url"].startswith("/artifacts/by-hash/")
         assert scene_url.startswith(urljoin(_controller_base(), "/artifacts/scenes/"))
