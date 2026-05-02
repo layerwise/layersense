@@ -4,10 +4,11 @@ from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from layersense_domain.models import RenderOptions
+from pydantic import BaseModel, Field
 
 from layersense_controller.cache import (
-    hash_file,
+    hash_render_request,
     lookup_cached_artifacts,
     lookup_content_hash_for_scene,
     store_cached_artifacts,
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 class RenderRequest(BaseModel):
     scene_path: str
     conversation_id: str
+    render_options: RenderOptions = Field(default_factory=RenderOptions)
 
 
 def _scene_uuid_from_scene_path(scene_path: Path) -> str:
@@ -144,7 +146,10 @@ async def render(request: RenderRequest, background_tasks: BackgroundTasks) -> d
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    content_hash = hash_file(scene_path)
+    content_hash = hash_render_request(
+        scene_path,
+        request.render_options.model_dump(mode="json", exclude_none=True),
+    )
     scene_uuid = _scene_uuid_from_scene_path(scene_path)
     cached = lookup_cached_artifacts(content_hash)
 
@@ -156,6 +161,7 @@ async def render(request: RenderRequest, background_tasks: BackgroundTasks) -> d
                     scene_path=scene_path,
                     content_hash=content_hash,
                     conversation_id=request.conversation_id,
+                    render_options=request.render_options,
                 )
                 return {"status": "queued"}
 
@@ -182,11 +188,17 @@ async def render(request: RenderRequest, background_tasks: BackgroundTasks) -> d
         scene_path=scene_path,
         content_hash=content_hash,
         conversation_id=request.conversation_id,
+        render_options=request.render_options,
     )
     return {"status": "queued"}
 
 
-async def _render_pipeline(scene_path: Path, content_hash: str, conversation_id: str) -> None:
+async def _render_pipeline(
+    scene_path: Path,
+    content_hash: str,
+    conversation_id: str,
+    render_options: RenderOptions | None = None,
+) -> None:
     cached = lookup_cached_artifacts(content_hash)
     scene_uuid = _scene_uuid_from_scene_path(scene_path)
     can_reuse_cached_hash = bool(cached) and (
@@ -200,7 +212,7 @@ async def _render_pipeline(scene_path: Path, content_hash: str, conversation_id:
     try:
         preview_path = _raw_output_path(scene_path, "preview")
         if not preview_cached:
-            preview_path = await render_preview(scene_path, content_hash)
+            preview_path = await render_preview(scene_path, content_hash, render_options)
             store_cached_artifacts(
                 content_hash=content_hash,
                 scene_uuid=scene_uuid,
@@ -226,7 +238,7 @@ async def _render_pipeline(scene_path: Path, content_hash: str, conversation_id:
 
         final_path = _raw_output_path(scene_path, "final")
         if not final_cached:
-            final_path = await render_final(scene_path, content_hash)
+            final_path = await render_final(scene_path, content_hash, render_options)
             store_cached_artifacts(
                 content_hash=content_hash,
                 scene_uuid=scene_uuid,

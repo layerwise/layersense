@@ -16,11 +16,17 @@ export type AnimationRequest = {
 export type AnimationResponse = {
   conversation_id: string
   scene_path: string
+  render_options: RenderOptions
+}
+
+export type RenderOptions = {
+  background_color: string | null
 }
 
 export type RenderQueueRequest = {
   scene_path: string
   conversation_id: string
+  render_options: RenderOptions
 }
 
 export type RenderQueueResponse = {

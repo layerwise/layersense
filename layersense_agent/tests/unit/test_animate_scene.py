@@ -76,7 +76,10 @@ def test_create_animation_writes_file_from_scene_payload(client):
     runner_prompt = mock_runner.run.await_args.args[1]
     prompt_prefix, serialized_scene = runner_prompt.split("\n", maxsplit=1)
     assert prompt_prefix == "animate a circle"
-    assert json.loads(serialized_scene) == normalize_scene(SCENE_PAYLOAD).model_dump()
+    assert json.loads(serialized_scene) == {
+        **normalize_scene(SCENE_PAYLOAD).model_dump(),
+        "appState": {},
+    }
 
 
 def test_create_animation_normalizes_scene_before_generation(client):
@@ -86,6 +89,7 @@ def test_create_animation_normalizes_scene_before_generation(client):
     with patch(
         "layersense_agent.api.v1.endpoints.animate_scene.normalize_scene"
     ) as normalize_mock:
+        normalize_mock.return_value.appState.viewBackgroundColor = None
         normalize_mock.return_value.model_dump_json.return_value = (
             '{"elements":[],"appState":{},"files":{}}'
         )
@@ -95,8 +99,48 @@ def test_create_animation_normalizes_scene_before_generation(client):
     assert response.status_code == 200
     assert_animation_created(response.json())
     normalize_mock.assert_called_once_with(payload["scene"])
+    normalize_mock.return_value.model_dump_json.assert_called_once_with(
+        exclude={"appState": {"viewBackgroundColor"}}
+    )
     runner_prompt = mock_runner.run.await_args.args[1]
     assert '{"elements":[],"appState":{},"files":{}}' in runner_prompt
+
+
+def test_create_animation_excludes_bypassed_background_color_from_generation_prompt(client):
+    c, _, mock_runner = client
+    payload = {
+        "prompt": "animate a circle",
+        "scene": {
+            **SCENE_PAYLOAD,
+            "appState": {"viewBackgroundColor": "#334455"},
+        },
+    }
+
+    response = c.post("/api/v1/animation", json=payload)
+
+    assert response.status_code == 200
+    runner_prompt = mock_runner.run.await_args.args[1]
+    _, serialized_scene = runner_prompt.split("\n", maxsplit=1)
+    assert json.loads(serialized_scene) == {
+        **normalize_scene(payload["scene"]).model_dump(),
+        "appState": {},
+    }
+
+
+def test_create_animation_returns_render_options(client):
+    c, _, _ = client
+    payload = {
+        "prompt": "animate a circle",
+        "scene": {
+            **SCENE_PAYLOAD,
+            "appState": {"viewBackgroundColor": "#334455"},
+        },
+    }
+
+    response = c.post("/api/v1/animation", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["render_options"] == {"background_color": "#334455"}
 
 
 def test_create_animation_rejects_effectively_empty_scene(client):

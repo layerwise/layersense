@@ -1,6 +1,9 @@
 import asyncio
 from importlib.resources import as_file, files
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from layersense_domain.models import RenderOptions
 
 from layersense_controller.config import settings
 
@@ -67,10 +70,15 @@ def _media_dir_path() -> Path:
     return settings.artifacts_dir / "scenes"
 
 
-async def _run_manim(scene_path: Path, render_kind: str) -> Path:
+async def _run_manim(
+    scene_path: Path, render_kind: str, render_options: RenderOptions | None = None
+) -> Path:
     raw_output_path = _raw_output_path(scene_path, render_kind)
     output_file_path = _output_file_path(scene_path, render_kind)
     media_dir_path = _media_dir_path()
+    extra_args: list[str] = []
+    if render_options and render_options.background_color:
+        extra_args.extend(["--background_color", render_options.background_color])
     raw_output_path.parent.mkdir(parents=True, exist_ok=True)
     raw_output_path.unlink(missing_ok=True)
 
@@ -81,6 +89,7 @@ async def _run_manim(scene_path: Path, render_kind: str) -> Path:
                 "render",
                 "--config_file",
                 str(config_path),
+                *extra_args,
                 "--media_dir",
                 str(media_dir_path),
                 "--format=mp4",
@@ -105,9 +114,13 @@ async def _run_manim(scene_path: Path, render_kind: str) -> Path:
     return raw_output_path
 
 
-async def render_preview(scene_path: Path, content_hash: str) -> Path:
-    return await _run_manim(scene_path, "preview")
+async def render_preview(
+    scene_path: Path, content_hash: str, render_options: RenderOptions | None = None
+) -> Path:
+    return await _run_manim(scene_path, "preview", render_options)
 
 
-async def render_final(scene_path: Path, content_hash: str) -> Path:
-    return await _run_manim(scene_path, "final")
+async def render_final(
+    scene_path: Path, content_hash: str, render_options: RenderOptions | None = None
+) -> Path:
+    return await _run_manim(scene_path, "final", render_options)

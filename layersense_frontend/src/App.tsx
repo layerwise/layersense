@@ -96,6 +96,7 @@ function App() {
       await queueRender({
         scene_path: animation.scene_path,
         conversation_id: animation.conversation_id,
+        render_options: animation.render_options,
       })
 
       setStatus('waiting_for_preview')
