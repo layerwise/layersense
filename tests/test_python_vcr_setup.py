@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_pytest_help_lists_integration_mode() -> None:
+    """Expose the integration mode option through pytest help output."""
     result = subprocess.run(
         [sys.executable, "-m", "pytest", "--help"],
         cwd=ROOT,
