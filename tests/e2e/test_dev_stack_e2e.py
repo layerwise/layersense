@@ -305,6 +305,7 @@ def _wait_for_artifacts(
 
 
 def test_frontend_root_serves_layersense_app_shell() -> None:
+    """Serve the LayerSense frontend application shell from the root route."""
     response = _request_with_boundary_failure(
         "GET",
         urljoin(_frontend_base(), "/"),
@@ -323,6 +324,7 @@ def test_frontend_root_serves_layersense_app_shell() -> None:
 
 
 def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:
+    """Accept animation scene payloads and write generated scene files."""
     health_response = _request_with_boundary_failure(
         "GET",
         urljoin(_agent_base(), "/health"),
@@ -338,6 +340,7 @@ def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:
 
 
 def test_controller_render_completes_for_known_good_scene() -> None:
+    """Render a known-good scene through the controller end-to-end path."""
     health_response = _request_with_boundary_failure(
         "GET",
         urljoin(_controller_base(), "/health"),
@@ -369,6 +372,7 @@ def test_controller_render_completes_for_known_good_scene() -> None:
 
 
 def test_api_chain_generate_to_render_completes() -> None:
+    """Complete the generate-to-render API chain across the live stack."""
     animation = _create_animation("Generate and render a simple smoke test animation.")
     render_options = _render_options_for_animation(animation)
     render_response = _queue_render(
