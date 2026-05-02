@@ -7,6 +7,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
 
 def test_handle_ignores_non_python_files(monkeypatch) -> None:
+    """Ignore watcher events for non-Python files."""
     calls: list[tuple[str, dict[str, object]]] = []
 
     def fake_post(url: str, json: dict[str, object], timeout: int) -> None:
@@ -21,6 +22,7 @@ def test_handle_ignores_non_python_files(monkeypatch) -> None:
 
 
 def test_handle_posts_render_payload_with_conversation_id(monkeypatch) -> None:
+    """Post watcher-triggered render payloads with the derived conversation ID."""
     calls: list[tuple[str, dict[str, object], int]] = []
 
     def fake_post(url: str, json: dict[str, object], timeout: int) -> None:
@@ -42,6 +44,7 @@ def test_handle_posts_render_payload_with_conversation_id(monkeypatch) -> None:
 
 
 def test_handle_strips_generated_prefix(monkeypatch) -> None:
+    """Strip generated filename prefixes when deriving conversation IDs."""
     calls: list[tuple[str, dict[str, object], int]] = []
 
     def fake_post(url: str, json: dict[str, object], timeout: int) -> None:

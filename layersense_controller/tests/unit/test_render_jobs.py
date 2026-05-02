@@ -41,6 +41,7 @@ class FakeRedis:
 
 @pytest.mark.asyncio
 async def test_create_queued_job_persists_snapshot_and_version() -> None:
+    """Persist queued render jobs with their initial snapshot version."""
     redis = FakeRedis()
     store = RenderJobStore(redis, ttl_seconds=3600)
 
@@ -60,6 +61,7 @@ async def test_create_queued_job_persists_snapshot_and_version() -> None:
 
 @pytest.mark.asyncio
 async def test_mark_succeeded_publishes_notification() -> None:
+    """Publish a version notification when a render job succeeds."""
     redis = FakeRedis()
     store = RenderJobStore(redis, ttl_seconds=3600)
     await store.create_queued_job(job_id="job-1", conversation_id="conv-1")
@@ -77,6 +79,7 @@ async def test_mark_succeeded_publishes_notification() -> None:
 
 @pytest.mark.asyncio
 async def test_wait_for_newer_version_returns_current_snapshot_after_pubsub_message() -> None:
+    """Return updated snapshots after a pubsub version notification arrives."""
     redis = FakeRedis()
     redis.pubsub_instance = FakePubSub(messages=[{"data": "2"}])
     store = RenderJobStore(redis, ttl_seconds=3600)
