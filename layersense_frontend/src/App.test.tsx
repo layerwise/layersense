@@ -100,7 +100,11 @@ describe('App', () => {
     fireEvent.click(button)
     expect(button.disabled).toBe(true)
 
-    resolveCreate!({ conversation_id: 'conv-1', scene_path: '/tmp/scene.py' })
+    resolveCreate!({
+      conversation_id: 'conv-1',
+      scene_path: '/tmp/scene.py',
+      render_options: { background_color: '#fff' },
+    })
     await waitFor(() => expect(mockQueueRender).toHaveBeenCalledTimes(1))
     expect(button.disabled).toBe(true)
 
@@ -109,7 +113,11 @@ describe('App', () => {
   })
 
   it('sends prompt and scene snapshot to createAnimation', async () => {
-    mockCreateAnimation.mockResolvedValue({ conversation_id: 'conv-1', scene_path: '/tmp/scene.py' })
+    mockCreateAnimation.mockResolvedValue({
+      conversation_id: 'conv-1',
+      scene_path: '/tmp/scene.py',
+      render_options: { background_color: '#fff' },
+    })
     mockQueueRender.mockResolvedValue({ status: 'queued' })
 
     const { getByRole, getByLabelText } = render(<App />)
@@ -131,22 +139,66 @@ describe('App', () => {
 
   it('starts a new conversation on each Generate click', async () => {
     mockCreateAnimation
-      .mockResolvedValueOnce({ conversation_id: 'conv-1', scene_path: '/tmp/scene-1.py' })
-      .mockResolvedValueOnce({ conversation_id: 'conv-2', scene_path: '/tmp/scene-2.py' })
+      .mockResolvedValueOnce({
+        conversation_id: 'conv-1',
+        scene_path: '/tmp/scene-1.py',
+        render_options: { background_color: '#112233' },
+      })
+      .mockResolvedValueOnce({
+        conversation_id: 'conv-2',
+        scene_path: '/tmp/scene-2.py',
+        render_options: { background_color: '#445566' },
+      })
     mockQueueRender.mockResolvedValue({ status: 'queued' })
 
     const { getByRole } = render(<App />)
     const button = getByRole('button', { name: 'Generate' })
 
     fireEvent.click(button)
-    await waitFor(() => expect(mockQueueRender).toHaveBeenCalledWith({ scene_path: '/tmp/scene-1.py', conversation_id: 'conv-1' }))
+    await waitFor(() =>
+      expect(mockQueueRender).toHaveBeenCalledWith({
+        scene_path: '/tmp/scene-1.py',
+        conversation_id: 'conv-1',
+        render_options: { background_color: '#112233' },
+      }),
+    )
 
     fireEvent.click(button)
-    await waitFor(() => expect(mockQueueRender).toHaveBeenCalledWith({ scene_path: '/tmp/scene-2.py', conversation_id: 'conv-2' }))
+    await waitFor(() =>
+      expect(mockQueueRender).toHaveBeenCalledWith({
+        scene_path: '/tmp/scene-2.py',
+        conversation_id: 'conv-2',
+        render_options: { background_color: '#445566' },
+      }),
+    )
+  })
+
+  it('forwards null background render options unchanged', async () => {
+    mockCreateAnimation.mockResolvedValue({
+      conversation_id: 'conv-null-bg',
+      scene_path: '/tmp/scene-null.py',
+      render_options: { background_color: null },
+    })
+    mockQueueRender.mockResolvedValue({ status: 'queued' })
+
+    const { getByRole } = render(<App />)
+    fireEvent.click(getByRole('button', { name: 'Generate' }))
+
+    await waitFor(() =>
+      expect(mockQueueRender).toHaveBeenCalledWith({
+        scene_path: '/tmp/scene-null.py',
+        conversation_id: 'conv-null-bg',
+        render_options: { background_color: null },
+      }),
+    )
   })
 
   it('updates media immediately on cached artifact_ready event', async () => {
-    mockCreateAnimation.mockResolvedValue({ conversation_id: 'conv-1', scene_path: '/tmp/scene.py' })
+    mockCreateAnimation.mockResolvedValue({
+      conversation_id: 'conv-1',
+      scene_path: '/tmp/scene.py',
+      render_options: { background_color: '#fff' },
+    })
     mockQueueRender.mockResolvedValue({ status: 'cached' })
 
     const { getByRole, getByTestId } = render(<App />)
@@ -164,7 +216,11 @@ describe('App', () => {
   })
 
   it('uses controller base URL for cached artifact video sources', async () => {
-    mockCreateAnimation.mockResolvedValue({ conversation_id: 'conv-1', scene_path: '/tmp/scene.py' })
+    mockCreateAnimation.mockResolvedValue({
+      conversation_id: 'conv-1',
+      scene_path: '/tmp/scene.py',
+      render_options: { background_color: '#fff' },
+    })
     mockQueueRender.mockResolvedValue({ status: 'cached' })
 
     const { getByRole, getByTestId } = render(<App />)
@@ -185,7 +241,11 @@ describe('App', () => {
   })
 
   it('applies preview then final when websocket events arrive', async () => {
-    mockCreateAnimation.mockResolvedValue({ conversation_id: 'conv-1', scene_path: '/tmp/scene.py' })
+    mockCreateAnimation.mockResolvedValue({
+      conversation_id: 'conv-1',
+      scene_path: '/tmp/scene.py',
+      render_options: { background_color: '#fff' },
+    })
     mockQueueRender.mockResolvedValue({ status: 'queued' })
 
     const { getByRole, getByTestId } = render(<App />)
@@ -210,7 +270,11 @@ describe('App', () => {
   })
 
   it('shows render_failed errors', async () => {
-    mockCreateAnimation.mockResolvedValue({ conversation_id: 'conv-1', scene_path: '/tmp/scene.py' })
+    mockCreateAnimation.mockResolvedValue({
+      conversation_id: 'conv-1',
+      scene_path: '/tmp/scene.py',
+      render_options: { background_color: '#fff' },
+    })
     mockQueueRender.mockResolvedValue({ status: 'queued' })
 
     const { getByRole, getByText } = render(<App />)

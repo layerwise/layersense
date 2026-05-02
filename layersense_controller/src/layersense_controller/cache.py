@@ -28,6 +28,13 @@ def hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def hash_render_request(path: Path, render_options: dict[str, Any] | None = None) -> str:
+    """Return SHA-256 hex digest of file contents plus render options."""
+    file_hash = hash_file(path)
+    options_json = json.dumps(render_options or {}, sort_keys=True)
+    return hashlib.sha256(f"{file_hash}:{options_json}".encode()).hexdigest()
+
+
 def preview_artifact(content_hash: str) -> Path:
     return settings.artifacts_dir / f"{content_hash}_preview.mp4"
 

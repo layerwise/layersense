@@ -10,6 +10,7 @@ from layersense_controller.render import (
     render_final,
     render_preview,
 )
+from layersense_domain.models import RenderOptions
 
 pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
@@ -77,6 +78,45 @@ async def test_render_preview_uses_preview_config_and_nested_output_file_for_pro
     )
     assert target.read_bytes() == b"preview"
     assert not (artifacts_dir / "abc123_preview.mp4").exists()
+
+
+@pytest.mark.asyncio
+async def test_render_preview_passes_background_override_to_manim(tmp_path, monkeypatch):
+    scene_path = tmp_path / "layersense_scenes" / "demo_project" / "scene.py"
+    scene_path.parent.mkdir(parents=True)
+    scene_path.write_text("print('x')\n")
+    artifacts_dir = tmp_path / "artifacts"
+    scenes_dir = tmp_path / "layersense_scenes"
+    monkeypatch.setattr("layersense_controller.render.settings.artifacts_dir", artifacts_dir)
+    monkeypatch.setattr("layersense_controller.render.settings.scenes_dir", scenes_dir)
+    raw_output = _raw_output_path(scene_path, "preview")
+    raw_output.parent.mkdir(parents=True, exist_ok=True)
+
+    captured_args: tuple[str, ...] | None = None
+    expected_raw_output = raw_output
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            expected_raw_output.write_bytes(b"preview")
+            return (b"", b"")
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        nonlocal captured_args
+        captured_args = args
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "layersense_controller.render.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+
+    await render_preview(scene_path, "abc123", RenderOptions(background_color="#ffffff"))
+
+    assert captured_args is not None
+    assert "--background_color" in captured_args
+    assert "#ffffff" in captured_args
 
 
 @pytest.mark.asyncio

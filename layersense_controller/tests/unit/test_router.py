@@ -1,12 +1,14 @@
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from layersense_controller.cache import hash_render_request
 from layersense_controller.config import settings
 from layersense_controller.render import RenderError
-from layersense_controller.router import _render_pipeline, router
+from layersense_controller.router import RenderRequest, _render_pipeline, router
 
 pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
@@ -17,6 +19,11 @@ def _build_client() -> TestClient:
     return TestClient(app)
 
 
+def _request_hash(scene_path: Path, background_color: str | None = None) -> str:
+    render_options = {"background_color": background_color} if background_color is not None else {}
+    return hash_render_request(scene_path, render_options)
+
+
 def test_health() -> None:
     client = _build_client()
 
@@ -24,6 +31,18 @@ def test_health() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_render_request_accepts_background_color() -> None:
+    request = RenderRequest.model_validate(
+        {
+            "scene_path": "/tmp/generated_123.py",
+            "conversation_id": "conversation-123",
+            "render_options": {"background_color": "#112233"},
+        }
+    )
+
+    assert request.render_options.background_color == "#112233"
 
 
 def test_render_returns_404_for_missing_file(tmp_path, monkeypatch) -> None:
@@ -40,6 +59,153 @@ def test_render_returns_404_for_missing_file(tmp_path, monkeypatch) -> None:
     assert response.json()["detail"] == "Scene file not found"
 
 
+def test_render_cache_identity_changes_when_background_color_changes(
+    tmp_path, monkeypatch
+) -> None:
+    scenes_dir = tmp_path / "layersense_scenes"
+    artifacts_dir = tmp_path / "artifacts"
+    scenes_dir.mkdir()
+    artifacts_dir.mkdir()
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
+
+    scene_path = scenes_dir / "generated_123.py"
+    scene_path.write_text(
+        "from manim import Scene\n\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass\n"
+    )
+
+    preview_hashes: list[str] = []
+    final_hashes: list[str] = []
+
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
+        assert scene_path_arg == scene_path
+        preview_hashes.append(content_hash_arg)
+        preview_path = (
+            artifacts_dir / "scenes" / "_root" / "preview" / f"{content_hash_arg}_preview.mp4"
+        )
+        preview_path.parent.mkdir(parents=True, exist_ok=True)
+        preview_path.write_bytes(b"preview")
+        return preview_path
+
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
+        assert scene_path_arg == scene_path
+        final_hashes.append(content_hash_arg)
+        final_path = artifacts_dir / "scenes" / "_root" / "final" / f"{content_hash_arg}_final.mp4"
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        final_path.write_bytes(b"final")
+        return final_path
+
+    async def fake_broadcast(event: dict[str, str]) -> None:
+        return None
+
+    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
+    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
+    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
+
+    client = _build_client()
+    first = client.post(
+        "/render",
+        json={
+            "scene_path": str(scene_path),
+            "conversation_id": "conversation-1",
+            "render_options": {"background_color": "#000000"},
+        },
+    )
+    second = client.post(
+        "/render",
+        json={
+            "scene_path": str(scene_path),
+            "conversation_id": "conversation-2",
+            "render_options": {"background_color": "#ffffff"},
+        },
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == {"status": "queued"}
+    assert second.json() == {"status": "queued"}
+    assert preview_hashes == [preview_hashes[0], preview_hashes[1]]
+    assert final_hashes == [final_hashes[0], final_hashes[1]]
+    assert preview_hashes[0] != preview_hashes[1]
+    assert final_hashes[0] != final_hashes[1]
+    assert preview_hashes == [
+        _request_hash(scene_path, background_color="#000000"),
+        _request_hash(scene_path, background_color="#ffffff"),
+    ]
+    assert final_hashes == [
+        _request_hash(scene_path, background_color="#000000"),
+        _request_hash(scene_path, background_color="#ffffff"),
+    ]
+
+    index_data = json.loads((artifacts_dir / "cache" / "index.json").read_text())
+    assert set(index_data["by_hash"]) == {preview_hashes[0], preview_hashes[1]}
+
+
+def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeypatch) -> None:
+    scenes_dir = tmp_path / "layersense_scenes"
+    artifacts_dir = tmp_path / "artifacts"
+    scenes_dir.mkdir()
+    artifacts_dir.mkdir()
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
+
+    scene_path = scenes_dir / "generated_123.py"
+    scene_path.write_text(
+        "from manim import Scene\n\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass\n"
+    )
+    content_hash = _request_hash(scene_path, background_color="#112233")
+
+    preview_calls: list[tuple[str, str | None]] = []
+    final_calls: list[tuple[str, str | None]] = []
+
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
+        assert scene_path_arg == scene_path
+        preview_calls.append(
+            (
+                content_hash_arg,
+                None if render_options_arg is None else render_options_arg.background_color,
+            )
+        )
+        preview_path = artifacts_dir / "scenes" / "_root" / "preview" / "generated_123_preview.mp4"
+        preview_path.parent.mkdir(parents=True, exist_ok=True)
+        preview_path.write_bytes(b"preview")
+        return preview_path
+
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
+        assert scene_path_arg == scene_path
+        final_calls.append(
+            (
+                content_hash_arg,
+                None if render_options_arg is None else render_options_arg.background_color,
+            )
+        )
+        final_path = artifacts_dir / "scenes" / "_root" / "final" / "generated_123_final.mp4"
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        final_path.write_bytes(b"final")
+        return final_path
+
+    async def fake_broadcast(event: dict[str, str]) -> None:
+        return None
+
+    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
+    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
+    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
+
+    response = _build_client().post(
+        "/render",
+        json={
+            "scene_path": str(scene_path),
+            "conversation_id": "conversation-1",
+            "render_options": {"background_color": "#112233"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "queued"}
+    assert preview_calls == [(content_hash, "#112233")]
+    assert final_calls == [(content_hash, "#112233")]
+
+
 def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> None:
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
@@ -51,7 +217,7 @@ def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> No
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
 
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
     preview = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
     final = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
     preview.parent.mkdir(parents=True, exist_ok=True)
@@ -138,16 +304,17 @@ def test_render_queues_when_canonical_artifacts_exist_without_cache_index(
     preview.write_bytes(b"preview")
     final.write_bytes(b"final")
 
+    content_hash = _request_hash(scene_path)
     events: list[dict[str, str]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
-        assert content_hash_arg == hashlib.sha256(scene_path.read_bytes()).hexdigest()
+        assert content_hash_arg == content_hash
         return preview
 
-    async def fake_render_final(scene_path_arg, content_hash_arg):
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
-        assert content_hash_arg == hashlib.sha256(scene_path.read_bytes()).hexdigest()
+        assert content_hash_arg == content_hash
         return final
 
     async def fake_broadcast(event: dict[str, str]) -> None:
@@ -169,12 +336,12 @@ def test_render_queues_when_canonical_artifacts_exist_without_cache_index(
         {
             "type": "preview_ready",
             "conversation_id": "conv-1",
-            "url": f"/artifacts/by-hash/{hashlib.sha256(scene_path.read_bytes()).hexdigest()}/preview",
+            "url": f"/artifacts/by-hash/{content_hash}/preview",
         },
         {
             "type": "render_ready",
             "conversation_id": "conv-1",
-            "url": f"/artifacts/by-hash/{hashlib.sha256(scene_path.read_bytes()).hexdigest()}/final",
+            "url": f"/artifacts/by-hash/{content_hash}/final",
         },
     ]
 
@@ -191,7 +358,7 @@ def test_render_skips_cached_fast_path_when_index_points_to_missing_files(
 
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
     index_path = artifacts_dir / "cache" / "index.json"
     index_path.parent.mkdir(parents=True, exist_ok=True)
     index_path.write_text(
@@ -219,13 +386,13 @@ def test_render_skips_cached_fast_path_when_index_points_to_missing_files(
     preview_target.parent.mkdir(parents=True, exist_ok=True)
     final_target.parent.mkdir(parents=True, exist_ok=True)
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         preview_target.write_bytes(b"preview")
         return preview_target
 
-    async def fake_render_final(scene_path_arg, content_hash_arg):
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         final_target.write_bytes(b"final")
@@ -460,7 +627,7 @@ def test_render_reuses_full_cached_hash_for_different_generated_scene_uuid(
 
     scene_path = scenes_dir / "generated_new-scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
     preview = artifacts_dir / "scenes" / "_root" / "preview" / "generated_new-scene_preview.mp4"
     final = artifacts_dir / "scenes" / "_root" / "final" / "generated_new-scene_final.mp4"
     preview.parent.mkdir(parents=True, exist_ok=True)
@@ -529,7 +696,7 @@ def test_render_treats_non_generated_scene_with_index_entry_as_uncached(
 
     scene_path = scenes_dir / "algebra" / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
     preview = artifacts_dir / "scenes" / "algebra" / "preview" / "demo_scene_preview.mp4"
     final = artifacts_dir / "scenes" / "algebra" / "final" / "demo_scene_final.mp4"
     preview.parent.mkdir(parents=True, exist_ok=True)
@@ -559,12 +726,12 @@ def test_render_treats_non_generated_scene_with_index_entry_as_uncached(
 
     events: list[dict[str, str]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         return preview
 
-    async def fake_render_final(scene_path_arg, content_hash_arg):
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         return final
@@ -612,7 +779,7 @@ async def test_render_pipeline_renders_non_generated_scene_when_hash_match_belon
 
     scene_path = scenes_dir / "algebra" / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
 
     index_path = artifacts_dir / "cache" / "index.json"
     index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -641,13 +808,13 @@ async def test_render_pipeline_renders_non_generated_scene_when_hash_match_belon
 
     events: list[dict[str, str]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         preview_target.write_bytes(b"preview")
         return preview_target
 
-    async def fake_render_final(scene_path_arg, content_hash_arg):
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         final_target.write_bytes(b"final")
@@ -696,7 +863,7 @@ async def test_render_pipeline_keeps_latest_generated_scene_uuid_mapping(
     scene_path = scenes_dir / "generated_scene-123.py"
     scene_path.write_text("print('new')\n")
     old_content_hash = "old-hash"
-    new_content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    new_content_hash = _request_hash(scene_path)
 
     old_preview = (
         artifacts_dir / "scenes" / "_root" / "preview" / "generated_scene-123_preview.mp4"
@@ -732,13 +899,13 @@ async def test_render_pipeline_keeps_latest_generated_scene_uuid_mapping(
     )
     new_final = artifacts_dir / "scenes" / "_root" / "final" / "generated_scene-123_final.mp4"
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == new_content_hash
         new_preview.write_bytes(b"new-preview")
         return new_preview
 
-    async def fake_render_final(scene_path_arg, content_hash_arg):
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == new_content_hash
         new_final.write_bytes(b"new-final")
@@ -773,19 +940,19 @@ def test_render_queues_and_broadcasts_preview_and_final(tmp_path, monkeypatch, c
 
     scene_path = scenes_dir / "queued_scene.py"
     scene_path.write_text("print('queued')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
     preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "queued_scene_preview.mp4"
     final_target = artifacts_dir / "scenes" / "_root" / "final" / "queued_scene_final.mp4"
     preview_target.parent.mkdir(parents=True, exist_ok=True)
     final_target.parent.mkdir(parents=True, exist_ok=True)
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         preview_target.write_bytes(b"preview")
         return preview_target
 
-    async def fake_render_final(scene_path_arg, content_hash_arg):
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         final_target.write_bytes(b"final")
@@ -861,7 +1028,7 @@ def test_render_queued_path_uses_canonical_scene_outputs_for_cache_check(
 
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
 
     legacy_preview = artifacts_dir / f"{content_hash}_preview.mp4"
     legacy_final = artifacts_dir / f"{content_hash}_final.mp4"
@@ -875,13 +1042,13 @@ def test_render_queued_path_uses_canonical_scene_outputs_for_cache_check(
 
     events: list[dict[str, str]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         preview_target.write_bytes(b"preview")
         return preview_target
 
-    async def fake_render_final(scene_path_arg, content_hash_arg):
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         final_target.write_bytes(b"final")
@@ -931,7 +1098,7 @@ async def test_render_pipeline_broadcasts_cached_final_after_rendering_missing_p
 
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
 
     preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
     final_target = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
@@ -960,7 +1127,7 @@ async def test_render_pipeline_broadcasts_cached_final_after_rendering_missing_p
 
     events: list[dict[str, str]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         preview_target.write_bytes(b"preview")
@@ -1005,7 +1172,7 @@ async def test_render_pipeline_broadcasts_cached_preview_before_rendering_missin
 
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
 
     preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
     final_target = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
@@ -1034,7 +1201,7 @@ async def test_render_pipeline_broadcasts_cached_preview_before_rendering_missin
 
     events: list[dict[str, str]] = []
 
-    async def fake_render_final(scene_path_arg, content_hash_arg):
+    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         final_target.write_bytes(b"final")
@@ -1079,10 +1246,10 @@ async def test_render_pipeline_logs_and_broadcasts_render_error(
 
     scene_path = scenes_dir / "render_error_scene.py"
     scene_path.write_text("print('broken')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
     render_error = RenderError("manim exited with code 1", "traceback lines")
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         raise render_error
@@ -1131,9 +1298,9 @@ async def test_render_pipeline_broadcasts_failure_for_unexpected_errors(
 
     scene_path = scenes_dir / "broken_scene.py"
     scene_path.write_text("print('broken')\n")
-    content_hash = hashlib.sha256(scene_path.read_bytes()).hexdigest()
+    content_hash = _request_hash(scene_path)
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
+    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
         assert scene_path_arg == scene_path
         assert content_hash_arg == content_hash
         raise RuntimeError("preview exploded")

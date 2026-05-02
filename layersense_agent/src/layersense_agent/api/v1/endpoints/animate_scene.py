@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from layersense_agent.agents.agent import ManimAgentContext, manim_generator, strip_code_fences
 from layersense_agent.models.base import AnimationCreatedResponse, AnimationInputs
 from layersense_agent.services.scene_normalizer import normalize_scene
+from layersense_domain.models import RenderOptions
 
 router = APIRouter()
 
@@ -31,7 +32,10 @@ async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
             status_code=422,
             detail="Scene must contain at least one supported element.",
         ) from exc
-    scene_json = normalized_scene.model_dump_json()
+    render_options = RenderOptions(
+        background_color=normalized_scene.appState.viewBackgroundColor,
+    )
+    scene_json = normalized_scene.model_dump_json(exclude={"appState": {"viewBackgroundColor"}})
     user_prompt = inputs.prompt + "\n" + scene_json
 
     result = await Runner.run(manim_generator, user_prompt, context=context)
@@ -45,4 +49,5 @@ async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
     return AnimationCreatedResponse(
         conversation_id=conversation_id,
         scene_path=str(scene_path),
+        render_options=render_options,
     )

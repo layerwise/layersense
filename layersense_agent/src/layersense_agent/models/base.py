@@ -1,5 +1,6 @@
 from typing import Any
 
+from layersense_domain.models import RenderOptions
 from pydantic import BaseModel, Field
 
 
@@ -10,6 +11,10 @@ class ConversationCreatedResponse(BaseModel):
 class AnimationCreatedResponse(BaseModel):
     conversation_id: str = Field(description="Unique identifier for this animation session.")
     scene_path: str = Field(description="Absolute path to the generated Manim scene file.")
+    render_options: RenderOptions = Field(
+        default_factory=RenderOptions,
+        description="Explicit render options derived from the scene.",
+    )
 
 
 class AnimationInputs(BaseModel):
