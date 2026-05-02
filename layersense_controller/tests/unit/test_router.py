@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from layersense_controller.cache import hash_render_request
 from layersense_controller.config import settings
 from layersense_controller.render_jobs import RenderJobSnapshot
