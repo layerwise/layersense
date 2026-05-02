@@ -253,9 +253,15 @@ def _temporary_known_good_scene(filename: str) -> Any:
 def _wait_for_artifacts(
     scene_path: str,
     conversation_id: str | None = None,
+    preview_url: str | None = None,
+    final_url: str | None = None,
     render_options: dict[str, Any] | None = None,
 ) -> tuple[str, str, str, str]:
-    preview_url, final_url = _artifact_candidates(scene_path, render_options)
+    resolved_preview_url, resolved_final_url = (
+        (preview_url, final_url)
+        if preview_url is not None and final_url is not None
+        else _artifact_candidates(scene_path, render_options)
+    )
     scene_url, scene_preview_url = _scene_artifact_candidates(scene_path, conversation_id)
     deadline = time.monotonic() + RENDER_TIMEOUT_SECONDS
 
@@ -271,10 +277,10 @@ def _wait_for_artifacts(
             "GET", scene_preview_url, "controller scene preview artifact request"
         )
         preview_response = _request_with_boundary_failure(
-            "GET", preview_url, "controller preview artifact request"
+            "GET", resolved_preview_url, "controller preview artifact request"
         )
         final_response = _request_with_boundary_failure(
-            "GET", final_url, "controller final artifact request"
+            "GET", resolved_final_url, "controller final artifact request"
         )
         last_scene_status = scene_response.status_code
         last_scene_preview_status = scene_preview_response.status_code
@@ -287,7 +293,7 @@ def _wait_for_artifacts(
             and preview_response.ok
             and final_response.ok
         ):
-            return scene_url, scene_preview_url, preview_url, final_url
+            return scene_url, scene_preview_url, resolved_preview_url, resolved_final_url
 
         time.sleep(1)
 
@@ -376,7 +382,11 @@ def test_api_chain_generate_to_render_completes() -> None:
         pytest.fail(f"render job failed: {job}")
 
     scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
-        animation["scene_path"], animation["conversation_id"], render_options
+        animation["scene_path"],
+        animation["conversation_id"],
+        preview_url=urljoin(_controller_base(), job["preview_url"]),
+        final_url=urljoin(_controller_base(), job["final_url"]),
+        render_options=render_options,
     )
     assert job["preview_url"].startswith("/artifacts/by-hash/")
     assert job["final_url"].startswith("/artifacts/by-hash/")
