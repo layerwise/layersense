@@ -145,10 +145,15 @@ LayerSense uses four semantic Python pytest markers:
 - `e2e`: live-stack end-to-end tests
 - `ai`: assistant-authored tests
 
+The current Python workflow now includes representative cassette-backed integration coverage for both core packages:
+
+- `layersense_agent/tests/integration/test_animation_api.py`
+- `layersense_controller/tests/integration/test_controller_api.py`
+
 Useful commands:
 
 - `just test`: default repo verification for Python unit tests plus frontend tests
-- `just test_python`: Python `unit` tests only
+- `just test_python`: Python `unit` plus `integration` tests
 - `just test_python_unit`: explicit Python `unit` selection
 - `just test_python_integration`: Python `integration` tests in replay mode
 - `just test_python_integration_refresh`: Python `integration` tests in record mode
@@ -163,6 +168,7 @@ The detailed taxonomy rationale and rollout notes live in:
 
 Notes:
 
+- Integration coverage helpers in `justfile` rely on the workspace `coverage` dependency and now work again through `just test_python_integration_coverage` and `just test_python_coverage`.
 - Export `OPENAI_API_KEY` in your shell before running `just docker`.
 - The current compose stack requires Redis because render job state and Taskiq transport both depend on it.
 - Shared host-mounted directories are used for scene and artifact exchange:
