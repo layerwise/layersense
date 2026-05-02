@@ -54,7 +54,8 @@ services:
   controller-worker:
     container_name: layersense_controller_worker
     build:
-      context: ./layersense_controller
+      context: .
+      dockerfile: layersense_controller/Dockerfile
     command: ["taskiq", "worker", "layersense_controller.worker:broker"]
     environment:
       LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
