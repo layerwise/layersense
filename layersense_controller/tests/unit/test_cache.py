@@ -33,6 +33,7 @@ def _store_cached_artifacts_in_subprocess(artifacts_dir: str) -> None:
 
 
 def test_hash_file_is_sha256(tmp_path):
+    """Hash files using SHA-256 content digests."""
     input_file = tmp_path / "scene.py"
     contents = b"print('hello')\n"
     input_file.write_bytes(contents)
@@ -43,12 +44,14 @@ def test_hash_file_is_sha256(tmp_path):
 
 
 def test_is_cached_false_when_no_files(tmp_path, monkeypatch):
+    """Report no cached artifacts when preview and final files are absent."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     assert is_cached("abc123") == (False, False)
 
 
 def test_is_cached_preview_true(tmp_path, monkeypatch):
+    """Report preview cache hits when only the preview artifact exists."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
     (tmp_path / "abc123_preview.mp4").write_bytes(b"preview")
 
@@ -56,6 +59,7 @@ def test_is_cached_preview_true(tmp_path, monkeypatch):
 
 
 def test_lookup_cache_miss_returns_no_artifacts(tmp_path, monkeypatch):
+    """Return cache misses when no cache index entry exists."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     assert lookup_cached_artifacts("abc123") is None
@@ -63,6 +67,7 @@ def test_lookup_cache_miss_returns_no_artifacts(tmp_path, monkeypatch):
 
 
 def test_store_and_lookup_cached_artifacts_round_trip(tmp_path, monkeypatch):
+    """Persist cached artifact metadata and read it back losslessly."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     preview = tmp_path / "scenes" / "demo" / "preview" / "scene_preview.mp4"
@@ -95,6 +100,7 @@ def test_store_and_lookup_cached_artifacts_round_trip(tmp_path, monkeypatch):
 
 
 def test_scene_uuid_maps_to_latest_content_hash(tmp_path, monkeypatch):
+    """Map each scene UUID to the most recently stored content hash."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     first_final = tmp_path / "scenes" / "demo" / "final" / "scene_v1.mp4"
@@ -121,6 +127,7 @@ def test_scene_uuid_maps_to_latest_content_hash(tmp_path, monkeypatch):
 
 
 def test_reusing_hash_for_new_scene_uuid_removes_stale_reverse_mapping(tmp_path, monkeypatch):
+    """Remove stale reverse mappings when a hash is reused for a new scene UUID."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     final = tmp_path / "scenes" / "demo" / "final" / "scene.mp4"
@@ -148,6 +155,7 @@ def test_reusing_hash_for_new_scene_uuid_removes_stale_reverse_mapping(tmp_path,
 
 
 def test_lookup_ignores_missing_indexed_files(tmp_path, monkeypatch):
+    """Drop missing artifact files while preserving surviving cached entries."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     preview = tmp_path / "scenes" / "demo" / "preview" / "scene_preview.mp4"
@@ -173,6 +181,7 @@ def test_lookup_ignores_missing_indexed_files(tmp_path, monkeypatch):
 
 
 def test_lookup_rejects_paths_outside_scenes_root(tmp_path, monkeypatch):
+    """Reject cached artifact records that escape the scenes root."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     index_path = tmp_path / "cache" / "index.json"
@@ -199,6 +208,7 @@ def test_lookup_rejects_paths_outside_scenes_root(tmp_path, monkeypatch):
 
 
 def test_store_rejects_paths_outside_scenes_root(tmp_path, monkeypatch):
+    """Reject storing cached artifact paths outside the scenes root."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     with pytest.raises(ValueError, match="scenes"):
@@ -211,6 +221,7 @@ def test_store_rejects_paths_outside_scenes_root(tmp_path, monkeypatch):
 
 
 def test_store_waits_for_cache_lock(tmp_path, monkeypatch):
+    """Wait for the cache lock before updating the shared cache index."""
     fcntl = pytest.importorskip("fcntl")
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
@@ -237,6 +248,7 @@ def test_store_waits_for_cache_lock(tmp_path, monkeypatch):
 
 
 def test_corrupt_index_degrades_to_cache_miss(tmp_path, monkeypatch):
+    """Treat corrupt cache index files as cache misses."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     index_path = tmp_path / "cache" / "index.json"
@@ -248,6 +260,7 @@ def test_corrupt_index_degrades_to_cache_miss(tmp_path, monkeypatch):
 
 
 def test_partially_corrupt_index_record_degrades_to_cache_miss(tmp_path, monkeypatch):
+    """Treat malformed cache index records as cache misses."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     index_path = tmp_path / "cache" / "index.json"
@@ -266,6 +279,7 @@ def test_partially_corrupt_index_record_degrades_to_cache_miss(tmp_path, monkeyp
 
 
 def test_non_string_scene_reverse_mapping_degrades_to_cache_miss(tmp_path, monkeypatch):
+    """Ignore scene reverse mappings whose content hash is not a string."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     index_path = tmp_path / "cache" / "index.json"
@@ -283,6 +297,7 @@ def test_non_string_scene_reverse_mapping_degrades_to_cache_miss(tmp_path, monke
 
 
 def test_reverse_mapping_to_different_scene_uuid_degrades_to_cache_miss(tmp_path, monkeypatch):
+    """Ignore reverse mappings that point at a different scene UUID record."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     final = tmp_path / "scenes" / "demo" / "final" / "scene.mp4"
@@ -313,6 +328,7 @@ def test_reverse_mapping_to_different_scene_uuid_degrades_to_cache_miss(tmp_path
 
 
 def test_reverse_mapping_to_unsafe_artifact_path_degrades_to_cache_miss(tmp_path, monkeypatch):
+    """Ignore reverse mappings whose artifact paths escape the scenes root."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     index_path = tmp_path / "cache" / "index.json"
@@ -339,6 +355,7 @@ def test_reverse_mapping_to_unsafe_artifact_path_degrades_to_cache_miss(tmp_path
 
 
 def test_store_recovers_from_corrupt_index(tmp_path, monkeypatch):
+    """Recover by rewriting the cache index after corruption."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
 
     index_path = tmp_path / "cache" / "index.json"

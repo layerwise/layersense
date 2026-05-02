@@ -23,6 +23,7 @@ def make_rectangle(*, element_id: str, element_type: str = "rectangle") -> dict[
 
 
 def test_normalize_scene_filters_deleted_elements() -> None:
+    """Drop deleted elements before validating the normalized scene."""
     payload = {
         "elements": [
             {
@@ -54,6 +55,7 @@ def test_normalize_scene_filters_deleted_elements() -> None:
 
 
 def test_normalize_scene_rejects_malformed_elements() -> None:
+    """Fail fast when scene elements are not structured dictionaries."""
     payload = {
         "elements": ["not-a-dict", make_rectangle(element_id="live-1")],
         "appState": {},
@@ -65,6 +67,7 @@ def test_normalize_scene_rejects_malformed_elements() -> None:
 
 
 def test_normalize_scene_filters_unsupported_elements() -> None:
+    """Drop unsupported element types during scene normalization."""
     payload = {
         "elements": [
             {**make_rectangle(element_id="unsupported-1"), "type": "diamond"},
@@ -81,6 +84,7 @@ def test_normalize_scene_filters_unsupported_elements() -> None:
 
 
 def test_normalize_scene_rejects_effectively_empty_scene() -> None:
+    """Reject scenes left empty after filtering unsupported elements."""
     payload = {
         "elements": [
             {**make_rectangle(element_id="deleted-1"), "isDeleted": True},

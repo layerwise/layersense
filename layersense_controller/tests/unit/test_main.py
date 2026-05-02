@@ -7,6 +7,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
 
 def test_app_health_endpoint_returns_ok() -> None:
+    """Expose a healthy controller status response."""
     from layersense_controller.main import app
 
     with TestClient(app) as client:
@@ -17,6 +18,7 @@ def test_app_health_endpoint_returns_ok() -> None:
 
 
 def test_default_app_lifespan_does_not_start_watcher(monkeypatch) -> None:
+    """Keep the default FastAPI lifespan from starting the watcher."""
     events: list[str] = []
 
     class FakeObserver:
@@ -43,6 +45,7 @@ def test_default_app_lifespan_does_not_start_watcher(monkeypatch) -> None:
 
 
 def test_settings_expose_redis_and_long_poll_fields(monkeypatch) -> None:
+    """Parse Redis and long-poll settings from environment variables."""
     monkeypatch.setenv("LAYERSENSE_REDIS_URL", "redis://redis:6379/0")
     monkeypatch.setenv("LAYERSENSE_RENDER_JOB_TTL_SECONDS", "7200")
     monkeypatch.setenv("LAYERSENSE_RENDER_JOB_WAIT_SECONDS", "20")

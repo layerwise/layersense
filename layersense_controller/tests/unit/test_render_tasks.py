@@ -10,6 +10,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
 @pytest.mark.asyncio
 async def test_run_render_pipeline_updates_preview_then_final(monkeypatch, tmp_path) -> None:
+    """Advance render jobs through preview and final success states."""
     scene_path = tmp_path / "layersense_scenes" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('demo')\n")
@@ -68,6 +69,7 @@ async def test_run_render_pipeline_updates_preview_then_final(monkeypatch, tmp_p
 
 @pytest.mark.asyncio
 async def test_run_render_pipeline_marks_failed_on_render_error(monkeypatch, tmp_path) -> None:
+    """Mark render jobs failed when rendering raises a render error."""
     scene_path = tmp_path / "layersense_scenes" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('demo')\n")
@@ -106,6 +108,7 @@ async def test_run_render_pipeline_marks_failed_on_render_error(monkeypatch, tmp
 async def test_run_render_pipeline_preserves_preview_before_final_completion(
     monkeypatch, tmp_path
 ) -> None:
+    """Keep preview URLs published while final rendering is still pending."""
     scene_path = tmp_path / "layersense_scenes" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('demo')\n")
@@ -159,6 +162,7 @@ async def test_run_render_pipeline_preserves_preview_before_final_completion(
 async def test_run_render_pipeline_preserves_preview_url_when_final_fails(
     monkeypatch, tmp_path
 ) -> None:
+    """Preserve preview URLs when final rendering fails after preview success."""
     scene_path = tmp_path / "layersense_scenes" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('demo')\n")
@@ -212,6 +216,7 @@ async def test_run_render_pipeline_preserves_preview_url_when_final_fails(
 async def test_run_render_pipeline_renders_non_generated_scene_when_hash_match_belongs_to_other_scene(
     monkeypatch, tmp_path
 ) -> None:
+    """Cache manual scene artifacts even when their hash was seen elsewhere."""
     scene_path = tmp_path / "layersense_scenes" / "algebra" / "demo_scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('demo')\n")

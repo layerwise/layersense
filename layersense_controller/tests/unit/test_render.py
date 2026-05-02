@@ -27,6 +27,7 @@ def fake_config_resource(base_dir: Path, filename: str):
 async def test_render_preview_uses_preview_config_and_nested_output_file_for_project_scene(
     tmp_path, monkeypatch
 ):
+    """Render previews into nested project-scoped artifact paths."""
     scene_path = tmp_path / "layersense_scenes" / "demo_project" / "shots" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('x')\n")
@@ -82,6 +83,7 @@ async def test_render_preview_uses_preview_config_and_nested_output_file_for_pro
 
 @pytest.mark.asyncio
 async def test_render_preview_passes_background_override_to_manim(tmp_path, monkeypatch):
+    """Pass explicit background overrides through to the Manim subprocess."""
     scene_path = tmp_path / "layersense_scenes" / "demo_project" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('x')\n")
@@ -121,6 +123,7 @@ async def test_render_preview_passes_background_override_to_manim(tmp_path, monk
 
 @pytest.mark.asyncio
 async def test_render_final_uses_final_config_and_root_fallback_output_file(tmp_path, monkeypatch):
+    """Render final outputs into the root fallback artifact layout."""
     scene_path = tmp_path / "layersense_scenes" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('x')\n")
@@ -166,6 +169,7 @@ async def test_render_final_uses_final_config_and_root_fallback_output_file(tmp_
 
 @pytest.mark.parametrize("render_kind", ["preview", "final"])
 def test_config_file_path_resolves_packaged_resource(render_kind):
+    """Resolve packaged Manim config resources for each render kind."""
     config_path = _config_file_path(render_kind)
 
     assert config_path.is_file()
@@ -175,6 +179,7 @@ def test_config_file_path_resolves_packaged_resource(render_kind):
 
 @pytest.mark.parametrize("render_kind", ["preview", "final"])
 def test_render_config_files_use_artifact_rooted_media_paths(render_kind):
+    """Point packaged Manim config files at the artifact-rooted media tree."""
     config_path = _config_file_path(render_kind)
     config_text = config_path.read_text()
 
@@ -190,6 +195,7 @@ def test_render_config_files_use_artifact_rooted_media_paths(render_kind):
 def test_render_config_files_write_movie_to_render_raw_output_path(
     tmp_path, monkeypatch, render_kind
 ):
+    """Write rendered movies to the deterministic raw output path."""
     config_path = _config_file_path(render_kind)
     temp_repo_root = tmp_path / "repo"
     temp_repo_root.mkdir()
@@ -237,6 +243,7 @@ def test_render_config_files_write_movie_to_render_raw_output_path(
 
 @pytest.mark.asyncio
 async def test_render_preview_uses_deterministic_raw_output_path(tmp_path, monkeypatch):
+    """Return the deterministic preview output path after rendering."""
     artifacts_dir = tmp_path / "artifacts"
     monkeypatch.setattr("layersense_controller.render.settings.artifacts_dir", artifacts_dir)
     scene_path = tmp_path / "layersense_scenes" / "demo_project" / "scene.py"
@@ -274,6 +281,7 @@ async def test_render_preview_uses_deterministic_raw_output_path(tmp_path, monke
 
 @pytest.mark.asyncio
 async def test_render_preview_rejects_scene_outside_configured_scenes_dir(tmp_path, monkeypatch):
+    """Reject render requests for scene files outside the scenes root."""
     scenes_dir = tmp_path / "layersense_scenes"
     scene_path = tmp_path / "outside.py"
     scene_path.write_text("print('x')\n")
@@ -292,6 +300,7 @@ async def test_render_preview_rejects_scene_outside_configured_scenes_dir(tmp_pa
 
 
 def test_raw_output_path_distinguishes_same_basename_in_different_projects(tmp_path, monkeypatch):
+    """Keep project directories in raw output paths to avoid collisions."""
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir = tmp_path / "layersense_scenes"
     monkeypatch.setattr("layersense_controller.render.settings.artifacts_dir", artifacts_dir)
@@ -304,6 +313,7 @@ def test_raw_output_path_distinguishes_same_basename_in_different_projects(tmp_p
 
 
 def test_raw_output_path_uses_root_fallback_for_top_level_scene(tmp_path, monkeypatch):
+    """Use the root artifact fallback for top-level scene files."""
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir = tmp_path / "layersense_scenes"
     monkeypatch.setattr("layersense_controller.render.settings.artifacts_dir", artifacts_dir)
@@ -315,6 +325,7 @@ def test_raw_output_path_uses_root_fallback_for_top_level_scene(tmp_path, monkey
 
 
 def test_raw_output_path_keeps_nested_directories_within_project(tmp_path, monkeypatch):
+    """Preserve nested project directories in raw output paths."""
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir = tmp_path / "layersense_scenes"
     monkeypatch.setattr("layersense_controller.render.settings.artifacts_dir", artifacts_dir)
@@ -338,6 +349,7 @@ def test_raw_output_path_keeps_nested_directories_within_project(tmp_path, monke
 
 @pytest.mark.parametrize("render_kind", ["preview", "final"])
 def test_render_config_files_use_output_file_to_isolate_partial_movie_dirs(render_kind):
+    """Isolate partial movie directories by the configured output file name."""
     config_path = _config_file_path(render_kind)
     config_text = config_path.read_text()
 
@@ -345,6 +357,7 @@ def test_render_config_files_use_output_file_to_isolate_partial_movie_dirs(rende
 
 
 def test_config_file_path_does_not_depend_on_repo_root(monkeypatch, tmp_path):
+    """Resolve config resources without depending on the repo root path."""
     resource_dir = tmp_path / "resources"
 
     monkeypatch.setattr(
@@ -359,6 +372,7 @@ def test_config_file_path_does_not_depend_on_repo_root(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_manim_uses_config_resource_within_live_context(tmp_path, monkeypatch):
+    """Use config resources while their context-managed files are still present."""
     resource_dir = tmp_path / "resources"
     config_path = resource_dir / "manim-preview.cfg"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -412,6 +426,7 @@ async def test_run_manim_uses_config_resource_within_live_context(tmp_path, monk
 
 @pytest.mark.asyncio
 async def test_render_preview_rejects_stale_preexisting_raw_output(tmp_path, monkeypatch):
+    """Reject stale raw outputs when Manim does not produce a fresh movie."""
     scene_path = tmp_path / "layersense_scenes" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('x')\n")
@@ -445,6 +460,7 @@ async def test_render_preview_rejects_stale_preexisting_raw_output(tmp_path, mon
 
 @pytest.mark.asyncio
 async def test_render_preview_raises_on_nonzero_exit(tmp_path, monkeypatch):
+    """Raise render errors when the Manim subprocess exits nonzero."""
     scene_path = tmp_path / "layersense_scenes" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('x')\n")
@@ -474,6 +490,7 @@ async def test_render_preview_raises_on_nonzero_exit(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_render_preview_normalizes_subprocess_start_failures(tmp_path, monkeypatch):
+    """Normalize subprocess startup failures into render errors."""
     scene_path = tmp_path / "layersense_scenes" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('x')\n")

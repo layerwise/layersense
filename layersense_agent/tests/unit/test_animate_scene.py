@@ -60,6 +60,7 @@ def client(tmp_path, monkeypatch):
 
 
 def test_create_animation_writes_file(client):
+    """Write the generated Manim scene file for valid animation requests."""
     c, tmp_path, _ = client
     payload = {"prompt": "animate a circle", "scene": SCENE_PAYLOAD}
     response = c.post("/api/v1/animation", json=payload)
@@ -68,6 +69,7 @@ def test_create_animation_writes_file(client):
 
 
 def test_create_animation_writes_file_from_scene_payload(client):
+    """Append the normalized scene payload to the model prompt."""
     c, tmp_path, mock_runner = client
     payload = {"prompt": "animate a circle", "scene": SCENE_PAYLOAD}
     response = c.post("/api/v1/animation", json=payload)
@@ -83,6 +85,7 @@ def test_create_animation_writes_file_from_scene_payload(client):
 
 
 def test_create_animation_normalizes_scene_before_generation(client):
+    """Normalize the scene before serializing it into the model prompt."""
     c, tmp_path, mock_runner = client
     payload = {"prompt": "animate a circle", "scene": SCENE_PAYLOAD}
 
@@ -107,6 +110,7 @@ def test_create_animation_normalizes_scene_before_generation(client):
 
 
 def test_create_animation_excludes_bypassed_background_color_from_generation_prompt(client):
+    """Exclude explicit render colors from the generated scene prompt payload."""
     c, _, mock_runner = client
     payload = {
         "prompt": "animate a circle",
@@ -128,6 +132,7 @@ def test_create_animation_excludes_bypassed_background_color_from_generation_pro
 
 
 def test_create_animation_returns_render_options(client):
+    """Return render options derived from the normalized Excalidraw scene."""
     c, _, _ = client
     payload = {
         "prompt": "animate a circle",
@@ -144,6 +149,7 @@ def test_create_animation_returns_render_options(client):
 
 
 def test_create_animation_rejects_effectively_empty_scene(client):
+    """Reject scene payloads that normalize to no supported elements."""
     c, _, mock_runner = client
     payload = {
         "prompt": "animate a circle",
@@ -158,10 +164,12 @@ def test_create_animation_rejects_effectively_empty_scene(client):
 
 
 def test_strip_code_fences_removes_fences():
+    """Strip fenced markdown wrappers from model output code."""
     wrapped = "```python\nfrom manim import *\n```"
     assert strip_code_fences(wrapped) == "from manim import *"
 
 
 def test_strip_code_fences_passthrough():
+    """Leave unfenced code output unchanged."""
     plain = "from manim import *"
     assert strip_code_fences(plain) == "from manim import *"

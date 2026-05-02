@@ -6,6 +6,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
 
 def test_normalized_scene_accepts_rectangle_ellipse_and_freedraw() -> None:
+    """Accept supported normalized Excalidraw element variants."""
     payload = {
         "elements": [
             {
@@ -66,6 +67,7 @@ def test_normalized_scene_accepts_rectangle_ellipse_and_freedraw() -> None:
 
 
 def test_freedraw_requires_points() -> None:
+    """Require point data for normalized freedraw elements."""
     payload = {
         "elements": [
             {
@@ -93,6 +95,7 @@ def test_freedraw_requires_points() -> None:
 
 
 def test_normalized_scene_accepts_partial_app_state() -> None:
+    """Allow partial app state data in normalized scene payloads."""
     payload = {
         "elements": [
             {
@@ -122,6 +125,7 @@ def test_normalized_scene_accepts_partial_app_state() -> None:
 
 
 def test_normalized_scene_rejects_unsupported_element_type() -> None:
+    """Reject scene payloads containing unsupported element discriminators."""
     payload = {
         "elements": [
             {

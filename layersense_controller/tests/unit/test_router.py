@@ -24,6 +24,7 @@ def _request_hash(scene_path: Path, background_color: str | None = None) -> str:
 
 
 def test_health() -> None:
+    """Return an OK health payload from the router."""
     response = _build_client().get("/health")
 
     assert response.status_code == 200
@@ -31,6 +32,7 @@ def test_health() -> None:
 
 
 def test_render_request_accepts_background_color() -> None:
+    """Validate background color render options on render requests."""
     request = RenderRequest.model_validate(
         {
             "scene_path": "/tmp/generated_123.py",
@@ -43,6 +45,7 @@ def test_render_request_accepts_background_color() -> None:
 
 
 def test_render_returns_404_for_missing_file(tmp_path, monkeypatch) -> None:
+    """Return 404 when the requested scene file does not exist."""
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path / "artifacts")
     missing_path = tmp_path / "missing_scene.py"
 
@@ -56,6 +59,7 @@ def test_render_returns_404_for_missing_file(tmp_path, monkeypatch) -> None:
 
 
 def test_render_returns_404_for_directory_path(tmp_path) -> None:
+    """Return 404 when the requested scene path is a directory."""
     directory_path = tmp_path / "scene_dir"
     directory_path.mkdir()
 
@@ -69,6 +73,7 @@ def test_render_returns_404_for_directory_path(tmp_path) -> None:
 
 
 def test_render_returns_400_for_scene_outside_configured_scenes_dir(tmp_path, monkeypatch) -> None:
+    """Reject render requests for scenes outside the configured scenes root."""
     scenes_dir = tmp_path / "layersense_scenes"
     scenes_dir.mkdir()
     monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
@@ -88,6 +93,7 @@ def test_render_returns_400_for_scene_outside_configured_scenes_dir(tmp_path, mo
 def test_render_cache_identity_changes_when_background_color_changes(
     tmp_path, monkeypatch
 ) -> None:
+    """Include render options in the queued render cache identity."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
@@ -184,6 +190,7 @@ def test_render_cache_identity_changes_when_background_color_changes(
 
 
 def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeypatch) -> None:
+    """Thread render options through the queued render pipeline payload."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
@@ -240,6 +247,7 @@ def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeyp
 
 
 def test_render_returns_job_snapshot_for_cached_scene(tmp_path, monkeypatch) -> None:
+    """Return a completed job snapshot when cached artifacts already exist."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
@@ -321,6 +329,7 @@ def test_render_returns_job_snapshot_for_cached_scene(tmp_path, monkeypatch) -> 
 def test_render_skips_cached_fast_path_when_index_points_to_missing_files(
     tmp_path, monkeypatch
 ) -> None:
+    """Fall back to queued rendering when indexed artifacts are missing."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
@@ -396,6 +405,8 @@ def test_render_skips_cached_fast_path_when_index_points_to_missing_files(
 
 
 def test_get_render_job_returns_404_for_unknown_job(monkeypatch) -> None:
+    """Return 404 when the requested render job cannot be found."""
+
     async def fake_wait_for_newer_version(*_args, **_kwargs):
         return None
 
@@ -411,6 +422,7 @@ def test_get_render_job_returns_404_for_unknown_job(monkeypatch) -> None:
 
 
 def test_get_render_job_clamps_excessive_wait_seconds(monkeypatch) -> None:
+    """Clamp render job long-poll waits to the configured maximum."""
     calls: list[tuple[int | None, int]] = []
 
     async def fake_wait_for_newer_version(
@@ -442,6 +454,7 @@ def test_get_render_job_clamps_excessive_wait_seconds(monkeypatch) -> None:
 
 
 def test_get_render_job_replaces_negative_wait_seconds_with_default(monkeypatch) -> None:
+    """Replace negative render job waits with the configured default."""
     calls: list[int] = []
 
     async def fake_wait_for_newer_version(
@@ -474,6 +487,7 @@ def test_get_render_job_replaces_negative_wait_seconds_with_default(monkeypatch)
 
 
 def test_artifact_returns_404_for_directory(tmp_path, monkeypatch) -> None:
+    """Return 404 when an artifact path resolves to a directory."""
     artifacts_dir = tmp_path / "artifacts"
     artifacts_dir.mkdir()
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
@@ -486,6 +500,7 @@ def test_artifact_returns_404_for_directory(tmp_path, monkeypatch) -> None:
 
 
 def test_artifact_serves_nested_scene_path(tmp_path, monkeypatch) -> None:
+    """Serve nested scene artifacts from the canonical scenes tree."""
     artifacts_dir = tmp_path / "artifacts"
     artifact_path = artifacts_dir / "scenes" / "demo" / "preview" / "scene_preview.mp4"
     artifact_path.parent.mkdir(parents=True)
@@ -499,6 +514,7 @@ def test_artifact_serves_nested_scene_path(tmp_path, monkeypatch) -> None:
 
 
 def test_artifact_rejects_non_scene_files(tmp_path, monkeypatch) -> None:
+    """Reject artifact requests outside the scenes subtree."""
     artifacts_dir = tmp_path / "artifacts"
     cache_index = artifacts_dir / "cache" / "index.json"
     cache_index.parent.mkdir(parents=True)
@@ -512,6 +528,7 @@ def test_artifact_rejects_non_scene_files(tmp_path, monkeypatch) -> None:
 
 
 def test_artifact_by_hash_serves_preview(tmp_path, monkeypatch) -> None:
+    """Serve cached preview artifacts through the hash-based route."""
     artifacts_dir = tmp_path / "artifacts"
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
     preview_path = artifacts_dir / "scenes" / "demo" / "preview" / "scene_preview.mp4"
@@ -546,6 +563,7 @@ def test_artifact_by_hash_serves_preview(tmp_path, monkeypatch) -> None:
 def test_artifact_scene_route_prefers_final_and_falls_back_to_preview(
     tmp_path, monkeypatch
 ) -> None:
+    """Prefer final scene artifacts and fall back to previews when needed."""
     artifacts_dir = tmp_path / "artifacts"
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
     preview_path = artifacts_dir / "scenes" / "demo" / "preview" / "scene_preview.mp4"
@@ -593,6 +611,7 @@ def test_artifact_scene_route_prefers_final_and_falls_back_to_preview(
 def test_artifact_scene_route_uses_generated_filename_stem_as_scene_uuid(
     tmp_path, monkeypatch
 ) -> None:
+    """Resolve generated scene artifact routes from the filename stem UUID."""
     artifacts_dir = tmp_path / "artifacts"
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
     final_path = artifacts_dir / "scenes" / "demo" / "final" / "scene_final.mp4"
@@ -627,6 +646,7 @@ def test_artifact_scene_route_uses_generated_filename_stem_as_scene_uuid(
 def test_render_reuses_full_cached_hash_for_different_generated_scene_uuid(
     tmp_path, monkeypatch
 ) -> None:
+    """Reuse cached generated artifacts across different generated scene UUIDs."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
@@ -700,6 +720,7 @@ def test_render_reuses_full_cached_hash_for_different_generated_scene_uuid(
 def test_render_treats_non_generated_scene_with_index_entry_as_uncached(
     tmp_path, monkeypatch
 ) -> None:
+    """Treat manual scenes as uncached unless their scene UUID also matches."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     (scenes_dir / "algebra").mkdir(parents=True)
