@@ -40,3 +40,19 @@ def test_default_app_lifespan_does_not_start_watcher(monkeypatch) -> None:
         assert events == []
 
     assert events == []
+
+
+def test_settings_expose_redis_and_long_poll_fields(monkeypatch) -> None:
+    monkeypatch.setenv("LAYERSENSE_REDIS_URL", "redis://redis:6379/0")
+    monkeypatch.setenv("LAYERSENSE_RENDER_JOB_TTL_SECONDS", "7200")
+    monkeypatch.setenv("LAYERSENSE_RENDER_JOB_WAIT_SECONDS", "20")
+    monkeypatch.setenv("LAYERSENSE_RENDER_JOB_MAX_WAIT_SECONDS", "30")
+
+    from layersense_controller.config import Settings
+
+    parsed = Settings()
+
+    assert str(parsed.redis_url) == "redis://redis:6379/0"
+    assert parsed.render_job_ttl_seconds == 7200
+    assert parsed.render_job_wait_seconds == 20
+    assert parsed.render_job_max_wait_seconds == 30

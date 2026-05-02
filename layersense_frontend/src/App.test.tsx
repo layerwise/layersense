@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { CONTROLLER_BASE } from './api'
@@ -6,15 +6,7 @@ import App from './App'
 
 const mockCreateAnimation = vi.fn()
 const mockQueueRender = vi.fn()
-const hookState = {
-  conversationId: null as string | null,
-  handlers: {
-    onArtifactReady: undefined as undefined | ((payload: { previewUrl: string; finalUrl: string }) => void),
-    onPreviewReady: undefined as undefined | ((url: string) => void),
-    onRenderReady: undefined as undefined | ((url: string) => void),
-    onRenderFailed: undefined as undefined | ((payload: { error: string; stderr?: string }) => void),
-  },
-}
+const mockUseRenderJob = vi.fn()
 
 vi.mock('./api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./api')>()
@@ -42,22 +34,8 @@ vi.mock('./components/Canvas', () => ({
   },
 }))
 
-vi.mock('./hooks/useRenderEvents', () => ({
-  useRenderEvents: (params: {
-    conversationId: string | null
-    onArtifactReady?: (payload: { previewUrl: string; finalUrl: string }) => void
-    onPreviewReady?: (url: string) => void
-    onRenderReady?: (url: string) => void
-    onRenderFailed?: (payload: { error: string; stderr?: string }) => void
-  }) => {
-    hookState.conversationId = params.conversationId
-    hookState.handlers = {
-      onArtifactReady: params.onArtifactReady,
-      onPreviewReady: params.onPreviewReady,
-      onRenderReady: params.onRenderReady,
-      onRenderFailed: params.onRenderFailed,
-    }
-  },
+vi.mock('./hooks/useRenderJob', () => ({
+  useRenderJob: (...args: unknown[]) => mockUseRenderJob(...args),
 }))
 
 describe('App', () => {
@@ -68,13 +46,8 @@ describe('App', () => {
   beforeEach(() => {
     mockCreateAnimation.mockReset()
     mockQueueRender.mockReset()
-    hookState.conversationId = null
-    hookState.handlers = {
-      onArtifactReady: undefined,
-      onPreviewReady: undefined,
-      onRenderReady: undefined,
-      onRenderFailed: undefined,
-    }
+    mockUseRenderJob.mockReset()
+    mockUseRenderJob.mockReturnValue(null)
   })
 
   it('disables Generate while submitting and queueing', async () => {
@@ -108,7 +81,19 @@ describe('App', () => {
     await waitFor(() => expect(mockQueueRender).toHaveBeenCalledTimes(1))
     expect(button.disabled).toBe(true)
 
-    resolveQueue!({ status: 'queued' })
+    resolveQueue!({
+      job_id: 'job-1',
+      job: {
+        job_id: 'job-1',
+        conversation_id: 'conv-1',
+        status: 'queued',
+        version: 1,
+        preview_url: null,
+        final_url: null,
+        error: null,
+        stderr: null,
+      },
+    })
     await waitFor(() => expect(button.disabled).toBe(false))
   })
 
@@ -118,7 +103,19 @@ describe('App', () => {
       scene_path: '/tmp/scene.py',
       render_options: { background_color: '#fff' },
     })
-    mockQueueRender.mockResolvedValue({ status: 'queued' })
+    mockQueueRender.mockResolvedValue({
+      job_id: 'job-1',
+      job: {
+        job_id: 'job-1',
+        conversation_id: 'conv-1',
+        status: 'queued',
+        version: 1,
+        preview_url: null,
+        final_url: null,
+        error: null,
+        stderr: null,
+      },
+    })
 
     const { getByRole, getByLabelText } = render(<App />)
     const input = getByLabelText('Describe the animation sequence') as HTMLTextAreaElement
@@ -149,7 +146,19 @@ describe('App', () => {
         scene_path: '/tmp/scene-2.py',
         render_options: { background_color: '#445566' },
       })
-    mockQueueRender.mockResolvedValue({ status: 'queued' })
+    mockQueueRender.mockResolvedValue({
+      job_id: 'job-1',
+      job: {
+        job_id: 'job-1',
+        conversation_id: 'conv-1',
+        status: 'queued',
+        version: 1,
+        preview_url: null,
+        final_url: null,
+        error: null,
+        stderr: null,
+      },
+    })
 
     const { getByRole } = render(<App />)
     const button = getByRole('button', { name: 'Generate' })
@@ -179,7 +188,19 @@ describe('App', () => {
       scene_path: '/tmp/scene-null.py',
       render_options: { background_color: null },
     })
-    mockQueueRender.mockResolvedValue({ status: 'queued' })
+    mockQueueRender.mockResolvedValue({
+      job_id: 'job-null-bg',
+      job: {
+        job_id: 'job-null-bg',
+        conversation_id: 'conv-null-bg',
+        status: 'queued',
+        version: 1,
+        preview_url: null,
+        final_url: null,
+        error: null,
+        stderr: null,
+      },
+    })
 
     const { getByRole } = render(<App />)
     fireEvent.click(getByRole('button', { name: 'Generate' }))
@@ -193,25 +214,70 @@ describe('App', () => {
     )
   })
 
-  it('updates media immediately on cached artifact_ready event', async () => {
+  it('shows preview then final as polled job snapshots advance', async () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
       scene_path: '/tmp/scene.py',
       render_options: { background_color: '#fff' },
     })
-    mockQueueRender.mockResolvedValue({ status: 'cached' })
-
-    const { getByRole, getByTestId } = render(<App />)
-    fireEvent.click(getByRole('button', { name: 'Generate' }))
-
-    await waitFor(() => expect(hookState.conversationId).toBe('conv-1'))
-    act(() => {
-      hookState.handlers.onArtifactReady?.({ previewUrl: '/preview.mp4', finalUrl: '/final.mp4' })
+    mockQueueRender.mockResolvedValue({
+      job_id: 'job-1',
+      job: {
+        job_id: 'job-1',
+        conversation_id: 'conv-1',
+        status: 'queued',
+        version: 1,
+        preview_url: null,
+        final_url: null,
+        error: null,
+        stderr: null,
+      },
     })
 
+    let activeCalls = 0
+    mockUseRenderJob.mockImplementation(({ jobId }: { jobId: string | null }) => {
+      if (!jobId) {
+        return null
+      }
+
+      activeCalls += 1
+      if (activeCalls === 1) {
+        return {
+          job_id: 'job-1',
+          conversation_id: 'conv-1',
+          status: 'waiting_for_final',
+          version: 2,
+          preview_url: '/preview.mp4',
+          final_url: null,
+          error: null,
+          stderr: null,
+        }
+      }
+
+      return {
+        job_id: 'job-1',
+        conversation_id: 'conv-1',
+        status: 'succeeded',
+        version: 3,
+        preview_url: '/preview.mp4',
+        final_url: '/final.mp4',
+        error: null,
+        stderr: null,
+      }
+    })
+
+    const { getByRole, getByTestId, rerender } = render(<App />)
+    fireEvent.click(getByRole('button', { name: 'Generate' }))
+
     await waitFor(() => {
-      const video = getByTestId('render-video') as HTMLVideoElement
-      expect(video.getAttribute('src')).toContain('/final.mp4')
+      const preview = getByTestId('render-video') as HTMLVideoElement
+      expect(preview.getAttribute('src')).toBe(`${CONTROLLER_BASE}/preview.mp4`)
+    })
+
+    rerender(<App />)
+    await waitFor(() => {
+      const final = getByTestId('render-video') as HTMLVideoElement
+      expect(final.getAttribute('src')).toBe(`${CONTROLLER_BASE}/final.mp4`)
     })
   })
 
@@ -221,18 +287,22 @@ describe('App', () => {
       scene_path: '/tmp/scene.py',
       render_options: { background_color: '#fff' },
     })
-    mockQueueRender.mockResolvedValue({ status: 'cached' })
+    mockQueueRender.mockResolvedValue({
+      job_id: 'job-1',
+      job: {
+        job_id: 'job-1',
+        conversation_id: 'conv-1',
+        status: 'succeeded',
+        version: 1,
+        preview_url: '/artifacts/preview.mp4',
+        final_url: '/artifacts/final.mp4',
+        error: null,
+        stderr: null,
+      },
+    })
 
     const { getByRole, getByTestId } = render(<App />)
     fireEvent.click(getByRole('button', { name: 'Generate' }))
-
-    await waitFor(() => expect(hookState.conversationId).toBe('conv-1'))
-    act(() => {
-      hookState.handlers.onArtifactReady?.({
-        previewUrl: '/artifacts/preview.mp4',
-        finalUrl: '/artifacts/final.mp4',
-      })
-    })
 
     await waitFor(() => {
       const video = getByTestId('render-video') as HTMLVideoElement
@@ -240,50 +310,44 @@ describe('App', () => {
     })
   })
 
-  it('applies preview then final when websocket events arrive', async () => {
+  it('shows failed job errors', async () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
       scene_path: '/tmp/scene.py',
       render_options: { background_color: '#fff' },
     })
-    mockQueueRender.mockResolvedValue({ status: 'queued' })
+    mockQueueRender.mockResolvedValue({
+      job_id: 'job-1',
+      job: {
+        job_id: 'job-1',
+        conversation_id: 'conv-1',
+        status: 'failed',
+        version: 2,
+        preview_url: null,
+        final_url: null,
+        error: 'render exploded',
+        stderr: '',
+      },
+    })
+    mockUseRenderJob.mockImplementation(({ jobId }: { jobId: string | null }) => {
+      if (!jobId) {
+        return null
+      }
 
-    const { getByRole, getByTestId } = render(<App />)
-    fireEvent.click(getByRole('button', { name: 'Generate' }))
-
-    await waitFor(() => expect(hookState.conversationId).toBe('conv-1'))
-    act(() => {
-      hookState.handlers.onPreviewReady?.('/preview.mp4')
+      return {
+        job_id: 'job-1',
+        conversation_id: 'conv-1',
+        status: 'failed',
+        version: 2,
+        preview_url: null,
+        final_url: null,
+        error: 'render exploded',
+        stderr: '',
+      }
     })
-    await waitFor(() => {
-      const preview = getByTestId('render-video') as HTMLVideoElement
-      expect(preview.getAttribute('src')).toBe(`${CONTROLLER_BASE}/preview.mp4`)
-    })
-
-    act(() => {
-      hookState.handlers.onRenderReady?.('/final.mp4')
-    })
-    await waitFor(() => {
-      const final = getByTestId('render-video') as HTMLVideoElement
-      expect(final.getAttribute('src')).toBe(`${CONTROLLER_BASE}/final.mp4`)
-    })
-  })
-
-  it('shows render_failed errors', async () => {
-    mockCreateAnimation.mockResolvedValue({
-      conversation_id: 'conv-1',
-      scene_path: '/tmp/scene.py',
-      render_options: { background_color: '#fff' },
-    })
-    mockQueueRender.mockResolvedValue({ status: 'queued' })
 
     const { getByRole, getByText } = render(<App />)
     fireEvent.click(getByRole('button', { name: 'Generate' }))
-
-    await waitFor(() => expect(hookState.conversationId).toBe('conv-1'))
-    act(() => {
-      hookState.handlers.onRenderFailed?.({ error: 'render exploded' })
-    })
 
     await waitFor(() => expect(getByText('render exploded')).toBeTruthy())
   })

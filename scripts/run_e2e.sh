@@ -39,7 +39,6 @@ wait_for_http "http://controller:8001/health" "controller health"
 export LAYERSENSE_E2E_FRONTEND_BASE="http://frontend"
 export LAYERSENSE_E2E_AGENT_BASE="http://agent:8000"
 export LAYERSENSE_E2E_CONTROLLER_BASE="http://controller:8001"
-export LAYERSENSE_E2E_CONTROLLER_WS_URL="ws://controller:8001/ws"
 export LAYERSENSE_E2E_REPO_ROOT="${workspace_root}"
 
 log_pwd "before uv sync"

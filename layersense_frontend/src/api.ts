@@ -1,6 +1,7 @@
 import type {
   AnimationRequest,
   AnimationResponse,
+  RenderJobSnapshot,
   RenderQueueRequest,
   RenderQueueResponse,
 } from './types'
@@ -48,4 +49,17 @@ export const queueRender = async (payload: RenderQueueRequest): Promise<RenderQu
   })
 
   return parseJsonResponse<RenderQueueResponse>(response, url)
+}
+
+export const getRenderJob = async (
+  jobId: string,
+  options: { afterVersion?: number; waitSeconds?: number } = {},
+): Promise<RenderJobSnapshot> => {
+  const params = new URLSearchParams()
+  if (options.afterVersion !== undefined) params.set('after_version', String(options.afterVersion))
+  if (options.waitSeconds !== undefined) params.set('wait_seconds', String(options.waitSeconds))
+  const suffix = params.toString() ? `?${params.toString()}` : ''
+  const url = `${CONTROLLER_BASE}/render-jobs/${jobId}${suffix}`
+  const response = await fetch(url, { method: 'GET' })
+  return parseJsonResponse<RenderJobSnapshot>(response, url)
 }

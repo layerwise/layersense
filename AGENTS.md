@@ -30,8 +30,9 @@ Your operational philosophy: You are the hands; the human is the architect. Move
 - Frontend posts prompt plus Excalidraw scene JSON to `POST /api/v1/animation` on the agent.
 - Agent writes generated scene files to `LAYERSENSE_SCENES_DIR`, default `./layersense_artifacts/code`, as `generated_<uuid>.py`.
 - Frontend then queues `POST /render` on the controller with `scene_path` and `conversation_id`.
-- Controller emits render events on `ws://localhost:8001/ws` and serves artifacts from stable routes under `/artifacts/by-hash/...` and `/artifacts/scenes/...`.
-- Watcher code still exists in the controller package, but the default browser proof-of-concept path is frontend-triggered generate -> render -> websocket.
+- Controller returns a `job_id`, stores render-job state in Redis, and the frontend long-polls `GET /render-jobs/{job_id}` for preview/final updates.
+- A dedicated controller Taskiq worker performs preview then final rendering and serves artifacts from stable routes under `/artifacts/by-hash/...` and `/artifacts/scenes/...`.
+- Watcher code still exists in the controller package, but the default browser proof-of-concept path is frontend-triggered generate -> render job -> long-poll.
 
 
 ### Commands That Matter

@@ -1,14 +1,14 @@
-import hashlib
 import json
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
 from layersense_controller.cache import hash_render_request
 from layersense_controller.config import settings
-from layersense_controller.render import RenderError
-from layersense_controller.router import RenderRequest, _render_pipeline, router
+from layersense_controller.render_jobs import RenderJobSnapshot
+from layersense_controller.router import RenderRequest, router
 
 pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
@@ -20,14 +20,12 @@ def _build_client() -> TestClient:
 
 
 def _request_hash(scene_path: Path, background_color: str | None = None) -> str:
-    render_options = {"background_color": background_color} if background_color is not None else {}
+    render_options = {"background_color": background_color}
     return hash_render_request(scene_path, render_options)
 
 
 def test_health() -> None:
-    client = _build_client()
-
-    response = client.get("/health")
+    response = _build_client().get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
@@ -47,16 +45,45 @@ def test_render_request_accepts_background_color() -> None:
 
 def test_render_returns_404_for_missing_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "artifacts_dir", tmp_path / "artifacts")
-    client = _build_client()
     missing_path = tmp_path / "missing_scene.py"
 
-    response = client.post(
+    response = _build_client().post(
         "/render",
         json={"scene_path": str(missing_path), "conversation_id": "conv-1"},
     )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Scene file not found"
+
+
+def test_render_returns_404_for_directory_path(tmp_path) -> None:
+    directory_path = tmp_path / "scene_dir"
+    directory_path.mkdir()
+
+    response = _build_client().post(
+        "/render",
+        json={"scene_path": str(directory_path), "conversation_id": "conv-1"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Scene file not found"
+
+
+def test_render_returns_400_for_scene_outside_configured_scenes_dir(tmp_path, monkeypatch) -> None:
+    scenes_dir = tmp_path / "layersense_scenes"
+    scenes_dir.mkdir()
+    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
+
+    off_root_scene = tmp_path / "outside.py"
+    off_root_scene.write_text("print('outside')\n")
+
+    response = _build_client().post(
+        "/render",
+        json={"scene_path": str(off_root_scene), "conversation_id": "conv-1"},
+    )
+
+    assert response.status_code == 400
+    assert "configured scenes_dir" in response.json()["detail"]
 
 
 def test_render_cache_identity_changes_when_background_color_changes(
@@ -74,33 +101,32 @@ def test_render_cache_identity_changes_when_background_color_changes(
         "from manim import Scene\n\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass\n"
     )
 
-    preview_hashes: list[str] = []
-    final_hashes: list[str] = []
+    queued_jobs: list[dict[str, str]] = []
+    enqueued_jobs: list[dict[str, object]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        preview_hashes.append(content_hash_arg)
-        preview_path = (
-            artifacts_dir / "scenes" / "_root" / "preview" / f"{content_hash_arg}_preview.mp4"
+    async def fake_create_queued_job(self, *, job_id: str, conversation_id: str):
+        queued_jobs.append({"job_id": job_id, "conversation_id": conversation_id})
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id=conversation_id,
+            status="queued",
+            version=1,
+            preview_url=None,
+            final_url=None,
+            error=None,
+            stderr=None,
         )
-        preview_path.parent.mkdir(parents=True, exist_ok=True)
-        preview_path.write_bytes(b"preview")
-        return preview_path
 
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        final_hashes.append(content_hash_arg)
-        final_path = artifacts_dir / "scenes" / "_root" / "final" / f"{content_hash_arg}_final.mp4"
-        final_path.parent.mkdir(parents=True, exist_ok=True)
-        final_path.write_bytes(b"final")
-        return final_path
+    async def fake_enqueue_render_job(**kwargs: object) -> None:
+        enqueued_jobs.append(kwargs)
 
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        return None
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
+    job_ids = iter(["job-1", "job-2"])
+    monkeypatch.setattr("layersense_controller.router.create_job_id", lambda: next(job_ids))
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"create_queued_job": fake_create_queued_job})(),
+    )
+    monkeypatch.setattr("layersense_controller.router.enqueue_render_job", fake_enqueue_render_job)
 
     client = _build_client()
     first = client.post(
@@ -122,23 +148,40 @@ def test_render_cache_identity_changes_when_background_color_changes(
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert first.json() == {"status": "queued"}
-    assert second.json() == {"status": "queued"}
-    assert preview_hashes == [preview_hashes[0], preview_hashes[1]]
-    assert final_hashes == [final_hashes[0], final_hashes[1]]
-    assert preview_hashes[0] != preview_hashes[1]
-    assert final_hashes[0] != final_hashes[1]
-    assert preview_hashes == [
-        _request_hash(scene_path, background_color="#000000"),
-        _request_hash(scene_path, background_color="#ffffff"),
+    assert first.json()["job"]["status"] == "queued"
+    assert second.json()["job"]["status"] == "queued"
+    assert queued_jobs == [
+        {"job_id": "job-1", "conversation_id": "conversation-1"},
+        {"job_id": "job-2", "conversation_id": "conversation-2"},
     ]
-    assert final_hashes == [
-        _request_hash(scene_path, background_color="#000000"),
-        _request_hash(scene_path, background_color="#ffffff"),
+    assert enqueued_jobs == [
+        {
+            "job_id": "job-1",
+            "scene_path": str(scene_path),
+            "content_hash": _request_hash(scene_path, background_color="#000000"),
+            "conversation_id": "conversation-1",
+            "render_options": RenderRequest.model_validate(
+                {
+                    "scene_path": str(scene_path),
+                    "conversation_id": "conversation-1",
+                    "render_options": {"background_color": "#000000"},
+                }
+            ).render_options,
+        },
+        {
+            "job_id": "job-2",
+            "scene_path": str(scene_path),
+            "content_hash": _request_hash(scene_path, background_color="#ffffff"),
+            "conversation_id": "conversation-2",
+            "render_options": RenderRequest.model_validate(
+                {
+                    "scene_path": str(scene_path),
+                    "conversation_id": "conversation-2",
+                    "render_options": {"background_color": "#ffffff"},
+                }
+            ).render_options,
+        },
     ]
-
-    index_data = json.loads((artifacts_dir / "cache" / "index.json").read_text())
-    assert set(index_data["by_hash"]) == {preview_hashes[0], preview_hashes[1]}
 
 
 def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeypatch) -> None:
@@ -155,41 +198,31 @@ def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeyp
     )
     content_hash = _request_hash(scene_path, background_color="#112233")
 
-    preview_calls: list[tuple[str, str | None]] = []
-    final_calls: list[tuple[str, str | None]] = []
+    queued_jobs: list[dict[str, str]] = []
+    enqueued_jobs: list[dict[str, object]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        preview_calls.append(
-            (
-                content_hash_arg,
-                None if render_options_arg is None else render_options_arg.background_color,
-            )
+    async def fake_create_queued_job(self, *, job_id: str, conversation_id: str):
+        queued_jobs.append({"job_id": job_id, "conversation_id": conversation_id})
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id=conversation_id,
+            status="queued",
+            version=1,
+            preview_url=None,
+            final_url=None,
+            error=None,
+            stderr=None,
         )
-        preview_path = artifacts_dir / "scenes" / "_root" / "preview" / "generated_123_preview.mp4"
-        preview_path.parent.mkdir(parents=True, exist_ok=True)
-        preview_path.write_bytes(b"preview")
-        return preview_path
 
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        final_calls.append(
-            (
-                content_hash_arg,
-                None if render_options_arg is None else render_options_arg.background_color,
-            )
-        )
-        final_path = artifacts_dir / "scenes" / "_root" / "final" / "generated_123_final.mp4"
-        final_path.parent.mkdir(parents=True, exist_ok=True)
-        final_path.write_bytes(b"final")
-        return final_path
+    async def fake_enqueue_render_job(**kwargs: object) -> None:
+        enqueued_jobs.append(kwargs)
 
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        return None
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
+    monkeypatch.setattr("layersense_controller.router.create_job_id", lambda: "job-1")
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"create_queued_job": fake_create_queued_job})(),
+    )
+    monkeypatch.setattr("layersense_controller.router.enqueue_render_job", fake_enqueue_render_job)
 
     response = _build_client().post(
         "/render",
@@ -201,12 +234,13 @@ def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeyp
     )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "queued"}
-    assert preview_calls == [(content_hash, "#112233")]
-    assert final_calls == [(content_hash, "#112233")]
+    assert response.json()["job"]["status"] == "queued"
+    assert queued_jobs == [{"job_id": "job-1", "conversation_id": "conversation-1"}]
+    assert enqueued_jobs[0]["content_hash"] == content_hash
+    assert enqueued_jobs[0]["render_options"].background_color == "#112233"
 
 
-def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> None:
+def test_render_returns_job_snapshot_for_cached_scene(tmp_path, monkeypatch) -> None:
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
@@ -216,7 +250,6 @@ def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> No
 
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-
     content_hash = _request_hash(scene_path)
     preview = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
     final = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
@@ -224,6 +257,7 @@ def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> No
     final.parent.mkdir(parents=True, exist_ok=True)
     preview.write_bytes(b"preview")
     final.write_bytes(b"final")
+
     index_path = artifacts_dir / "cache" / "index.json"
     index_path.parent.mkdir(parents=True, exist_ok=True)
     index_path.write_text(
@@ -231,11 +265,11 @@ def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> No
             {
                 "by_hash": {
                     content_hash: {
-                        "scene_path": str(scene_path),
+                        "scene_path": "demo_scene.py",
                         "scene_uuid": "demo_scene",
                         "preview": "_root/preview/demo_scene_preview.mp4",
                         "final": "_root/final/demo_scene_final.mp4",
-                        "updated_at": "2026-04-06T12:34:56Z",
+                        "updated_at": "2026-04-24T00:00:00Z",
                         "artifact_version": 1,
                     }
                 },
@@ -244,106 +278,45 @@ def test_render_returns_cached_when_artifacts_exist(tmp_path, monkeypatch) -> No
         )
     )
 
-    events: list[dict[str, str]] = []
+    async def fake_create_completed_job(
+        self, *, job_id: str, conversation_id: str, preview_url: str, final_url: str
+    ):
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id=conversation_id,
+            status="succeeded",
+            version=1,
+            preview_url=preview_url,
+            final_url=final_url,
+            error=None,
+            stderr=None,
+        )
 
-    preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
-    final_target = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
-    preview_target.parent.mkdir(parents=True, exist_ok=True)
-    final_target.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr("layersense_controller.router.create_job_id", lambda: "job-123")
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"create_completed_job": fake_create_completed_job})(),
+    )
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        preview_target.write_bytes(b"preview")
-        return preview_target
-
-    async def fake_render_final(scene_path_arg, content_hash_arg):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        final_target.write_bytes(b"final")
-        return final_target
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    client = _build_client()
-    response = client.post(
+    response = _build_client().post(
         "/render",
         json={"scene_path": str(scene_path), "conversation_id": "conv-1"},
     )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "cached"}
-    assert len(events) == 1
-    assert events[0]["type"] == "artifact_ready"
-    assert events[0]["preview_url"] == f"/artifacts/by-hash/{content_hash}/preview"
-    assert events[0]["final_url"] == f"/artifacts/by-hash/{content_hash}/final"
-
-
-def test_render_queues_when_canonical_artifacts_exist_without_cache_index(
-    tmp_path, monkeypatch
-) -> None:
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir.mkdir()
-    artifacts_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "demo_scene.py"
-    scene_path.write_text("print('demo')\n")
-
-    preview = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
-    final = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
-    preview.parent.mkdir(parents=True, exist_ok=True)
-    final.parent.mkdir(parents=True, exist_ok=True)
-    preview.write_bytes(b"preview")
-    final.write_bytes(b"final")
-
-    content_hash = _request_hash(scene_path)
-    events: list[dict[str, str]] = []
-
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        return preview
-
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        return final
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    client = _build_client()
-    response = client.post(
-        "/render",
-        json={"scene_path": str(scene_path), "conversation_id": "conv-1"},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "queued"}
-    assert events == [
-        {
-            "type": "preview_ready",
+    assert response.json() == {
+        "job_id": "job-123",
+        "job": {
+            "job_id": "job-123",
             "conversation_id": "conv-1",
-            "url": f"/artifacts/by-hash/{content_hash}/preview",
+            "status": "succeeded",
+            "version": 1,
+            "preview_url": f"/artifacts/by-hash/{content_hash}/preview",
+            "final_url": f"/artifacts/by-hash/{content_hash}/final",
+            "error": None,
+            "stderr": None,
         },
-        {
-            "type": "render_ready",
-            "conversation_id": "conv-1",
-            "url": f"/artifacts/by-hash/{content_hash}/final",
-        },
-    ]
+    }
 
 
 def test_render_skips_cached_fast_path_when_index_points_to_missing_files(
@@ -366,11 +339,11 @@ def test_render_skips_cached_fast_path_when_index_points_to_missing_files(
             {
                 "by_hash": {
                     content_hash: {
-                        "scene_path": str(scene_path),
+                        "scene_path": "demo_scene.py",
                         "scene_uuid": "demo_scene",
                         "preview": "_root/preview/missing_preview.mp4",
                         "final": "_root/final/missing_final.mp4",
-                        "updated_at": "2026-04-06T12:34:56Z",
+                        "updated_at": "2026-04-24T00:00:00Z",
                         "artifact_version": 1,
                     }
                 },
@@ -379,84 +352,126 @@ def test_render_skips_cached_fast_path_when_index_points_to_missing_files(
         )
     )
 
-    events: list[dict[str, str]] = []
+    async def fake_create_queued_job(self, *, job_id: str, conversation_id: str):
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id=conversation_id,
+            status="queued",
+            version=1,
+            preview_url=None,
+            final_url=None,
+            error=None,
+            stderr=None,
+        )
 
-    preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
-    final_target = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
-    preview_target.parent.mkdir(parents=True, exist_ok=True)
-    final_target.parent.mkdir(parents=True, exist_ok=True)
+    enqueued_jobs: list[dict[str, object]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        preview_target.write_bytes(b"preview")
-        return preview_target
+    async def fake_enqueue_render_job(**kwargs: object) -> None:
+        enqueued_jobs.append(kwargs)
 
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        final_target.write_bytes(b"final")
-        return final_target
+    monkeypatch.setattr("layersense_controller.router.create_job_id", lambda: "job-123")
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"create_queued_job": fake_create_queued_job})(),
+    )
+    monkeypatch.setattr("layersense_controller.router.enqueue_render_job", fake_enqueue_render_job)
 
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    client = _build_client()
-    response = client.post(
+    response = _build_client().post(
         "/render",
-        json={"scene_path": str(scene_path), "conversation_id": "conv-stale-index"},
+        json={"scene_path": str(scene_path), "conversation_id": "conv-1"},
     )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "queued"}
-    assert events == [
+    assert response.json()["job"]["status"] == "queued"
+    assert enqueued_jobs == [
         {
-            "type": "preview_ready",
-            "conversation_id": "conv-stale-index",
-            "url": f"/artifacts/by-hash/{content_hash}/preview",
-        },
-        {
-            "type": "render_ready",
-            "conversation_id": "conv-stale-index",
-            "url": f"/artifacts/by-hash/{content_hash}/final",
-        },
+            "job_id": "job-123",
+            "scene_path": str(scene_path),
+            "content_hash": content_hash,
+            "conversation_id": "conv-1",
+            "render_options": RenderRequest.model_validate(
+                {"scene_path": str(scene_path), "conversation_id": "conv-1"}
+            ).render_options,
+        }
     ]
 
 
-def test_render_returns_404_for_directory_path(tmp_path) -> None:
-    client = _build_client()
-    directory_path = tmp_path / "scene_dir"
-    directory_path.mkdir()
+def test_get_render_job_returns_404_for_unknown_job(monkeypatch) -> None:
+    async def fake_wait_for_newer_version(*_args, **_kwargs):
+        return None
 
-    response = client.post(
-        "/render",
-        json={"scene_path": str(directory_path), "conversation_id": "conv-1"},
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"wait_for_newer_version": fake_wait_for_newer_version})(),
     )
+
+    response = _build_client().get("/render-jobs/job-missing")
 
     assert response.status_code == 404
-    assert response.json()["detail"] == "Scene file not found"
+    assert response.json() == {"detail": "Render job not found"}
 
 
-def test_render_returns_400_for_scene_outside_configured_scenes_dir(tmp_path, monkeypatch) -> None:
-    scenes_dir = tmp_path / "layersense_scenes"
-    scenes_dir.mkdir()
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-    client = _build_client()
+def test_get_render_job_clamps_excessive_wait_seconds(monkeypatch) -> None:
+    calls: list[tuple[int | None, int]] = []
 
-    off_root_scene = tmp_path / "outside.py"
-    off_root_scene.write_text("print('outside')\n")
+    async def fake_wait_for_newer_version(
+        self, job_id: str, after_version: int | None, wait_seconds: int
+    ):
+        calls.append((after_version, wait_seconds))
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id="conv-1",
+            status="queued",
+            version=1,
+            preview_url=None,
+            final_url=None,
+            error=None,
+            stderr=None,
+        )
 
-    response = client.post(
-        "/render",
-        json={"scene_path": str(off_root_scene), "conversation_id": "conv-1"},
+    monkeypatch.setattr(settings, "render_job_wait_seconds", 20)
+    monkeypatch.setattr(settings, "render_job_max_wait_seconds", 30)
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"wait_for_newer_version": fake_wait_for_newer_version})(),
     )
 
-    assert response.status_code == 400
-    assert "configured scenes_dir" in response.json()["detail"]
+    response = _build_client().get("/render-jobs/job-1?after_version=1&wait_seconds=999")
+
+    assert response.status_code == 200
+    assert calls == [(1, 30)]
+
+
+def test_get_render_job_replaces_negative_wait_seconds_with_default(monkeypatch) -> None:
+    calls: list[int] = []
+
+    async def fake_wait_for_newer_version(
+        self, job_id: str, after_version: int | None, wait_seconds: int
+    ):
+        del after_version
+        calls.append(wait_seconds)
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id="conv-1",
+            status="queued",
+            version=1,
+            preview_url=None,
+            final_url=None,
+            error=None,
+            stderr=None,
+        )
+
+    monkeypatch.setattr(settings, "render_job_wait_seconds", 20)
+    monkeypatch.setattr(settings, "render_job_max_wait_seconds", 30)
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"wait_for_newer_version": fake_wait_for_newer_version})(),
+    )
+
+    response = _build_client().get("/render-jobs/job-1?wait_seconds=-5")
+
+    assert response.status_code == 200
+    assert calls == [20]
 
 
 def test_artifact_returns_404_for_directory(tmp_path, monkeypatch) -> None:
@@ -465,8 +480,7 @@ def test_artifact_returns_404_for_directory(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
     (artifacts_dir / "dir.mp4").mkdir()
 
-    client = _build_client()
-    response = client.get("/artifacts/dir.mp4")
+    response = _build_client().get("/artifacts/dir.mp4")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Artifact not found"
@@ -479,8 +493,7 @@ def test_artifact_serves_nested_scene_path(tmp_path, monkeypatch) -> None:
     artifact_path.write_bytes(b"preview")
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
 
-    client = _build_client()
-    response = client.get("/artifacts/scenes/demo/preview/scene_preview.mp4")
+    response = _build_client().get("/artifacts/scenes/demo/preview/scene_preview.mp4")
 
     assert response.status_code == 200
     assert response.content == b"preview"
@@ -493,8 +506,7 @@ def test_artifact_rejects_non_scene_files(tmp_path, monkeypatch) -> None:
     cache_index.write_text("{}")
     monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
 
-    client = _build_client()
-    response = client.get("/artifacts/cache/index.json")
+    response = _build_client().get("/artifacts/cache/index.json")
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Artifact not found"
@@ -526,8 +538,7 @@ def test_artifact_by_hash_serves_preview(tmp_path, monkeypatch) -> None:
         )
     )
 
-    client = _build_client()
-    response = client.get("/artifacts/by-hash/hash-1/preview")
+    response = _build_client().get("/artifacts/by-hash/hash-1/preview")
 
     assert response.status_code == 200
     assert response.content == b"preview"
@@ -608,8 +619,7 @@ def test_artifact_scene_route_uses_generated_filename_stem_as_scene_uuid(
         )
     )
 
-    client = _build_client()
-    response = client.get("/artifacts/scenes/123e4567")
+    response = _build_client().get("/artifacts/scenes/123e4567")
 
     assert response.status_code == 200
     assert response.content == b"final"
@@ -655,31 +665,35 @@ def test_render_reuses_full_cached_hash_for_different_generated_scene_uuid(
         )
     )
 
-    events: list[dict[str, str]] = []
+    async def fake_create_completed_job(
+        self, *, job_id: str, conversation_id: str, preview_url: str, final_url: str
+    ):
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id=conversation_id,
+            status="succeeded",
+            version=1,
+            preview_url=preview_url,
+            final_url=final_url,
+            error=None,
+            stderr=None,
+        )
 
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
+    monkeypatch.setattr("layersense_controller.router.create_job_id", lambda: "job-generated")
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"create_completed_job": fake_create_completed_job})(),
+    )
 
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    client = _build_client()
-    response = client.post(
+    response = _build_client().post(
         "/render",
         json={"scene_path": str(scene_path), "conversation_id": "conv-reuse-generated"},
     )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "cached"}
-    assert events == [
-        {
-            "type": "artifact_ready",
-            "conversation_id": "conv-reuse-generated",
-            "preview_url": f"/artifacts/by-hash/{content_hash}/preview",
-            "final_url": f"/artifacts/by-hash/{content_hash}/final",
-        }
-    ]
+    assert response.json()["job"]["status"] == "succeeded"
 
-    scene_response = client.get("/artifacts/scenes/new-scene")
+    scene_response = _build_client().get("/artifacts/scenes/new-scene")
     assert scene_response.status_code == 200
     assert scene_response.content == b"final"
 
@@ -724,606 +738,56 @@ def test_render_treats_non_generated_scene_with_index_entry_as_uncached(
         )
     )
 
-    events: list[dict[str, str]] = []
+    queued: list[dict[str, object]] = []
 
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        return preview
+    async def fake_create_queued_job(self, *, job_id: str, conversation_id: str):
+        queued.append({"job_id": job_id, "conversation_id": conversation_id})
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id=conversation_id,
+            status="queued",
+            version=1,
+            preview_url=None,
+            final_url=None,
+            error=None,
+            stderr=None,
+        )
 
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        return final
+    async def fake_enqueue_render_job(**kwargs: object) -> None:
+        queued.append(kwargs)
 
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
+    monkeypatch.setattr("layersense_controller.router.create_job_id", lambda: "job-manual")
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"create_queued_job": fake_create_queued_job})(),
+    )
+    monkeypatch.setattr("layersense_controller.router.enqueue_render_job", fake_enqueue_render_job)
 
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    client = _build_client()
-    response = client.post(
+    response = _build_client().post(
         "/render",
         json={"scene_path": str(scene_path), "conversation_id": "conv-manual-scene"},
     )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "queued"}
-    assert events == [
-        {
-            "type": "preview_ready",
+    assert response.json() == {
+        "job_id": "job-manual",
+        "job": {
+            "job_id": "job-manual",
             "conversation_id": "conv-manual-scene",
-            "url": f"/artifacts/by-hash/{content_hash}/preview",
+            "status": "queued",
+            "version": 1,
+            "preview_url": None,
+            "final_url": None,
+            "error": None,
+            "stderr": None,
         },
-        {
-            "type": "render_ready",
-            "conversation_id": "conv-manual-scene",
-            "url": f"/artifacts/by-hash/{content_hash}/final",
-        },
-    ]
-
-
-@pytest.mark.asyncio
-async def test_render_pipeline_renders_non_generated_scene_when_hash_match_belongs_to_other_scene(
-    tmp_path, monkeypatch
-) -> None:
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir = tmp_path / "artifacts"
-    (scenes_dir / "algebra").mkdir(parents=True)
-    (scenes_dir / "geometry").mkdir(parents=True)
-    artifacts_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "algebra" / "demo_scene.py"
-    scene_path.write_text("print('demo')\n")
-    content_hash = _request_hash(scene_path)
-
-    index_path = artifacts_dir / "cache" / "index.json"
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_text(
-        json.dumps(
-            {
-                "by_hash": {
-                    content_hash: {
-                        "scene_path": "geometry/demo_scene.py",
-                        "scene_uuid": "other-scene-uuid",
-                        "preview": "geometry/preview/demo_scene_preview.mp4",
-                        "final": "geometry/final/demo_scene_final.mp4",
-                        "updated_at": "2026-04-06T12:34:56Z",
-                        "artifact_version": 1,
-                    }
-                },
-                "by_scene_uuid": {"other-scene-uuid": content_hash},
-            }
-        )
-    )
-
-    preview_target = artifacts_dir / "scenes" / "algebra" / "preview" / "demo_scene_preview.mp4"
-    final_target = artifacts_dir / "scenes" / "algebra" / "final" / "demo_scene_final.mp4"
-    preview_target.parent.mkdir(parents=True, exist_ok=True)
-    final_target.parent.mkdir(parents=True, exist_ok=True)
-
-    events: list[dict[str, str]] = []
-
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        preview_target.write_bytes(b"preview")
-        return preview_target
-
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        final_target.write_bytes(b"final")
-        return final_target
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    await _render_pipeline(
-        scene_path=scene_path,
-        content_hash=content_hash,
-        conversation_id="conv-non-generated-hash-collision",
-    )
-
-    assert preview_target.exists()
-    assert final_target.exists()
-    assert events == [
-        {
-            "type": "preview_ready",
-            "conversation_id": "conv-non-generated-hash-collision",
-            "url": f"/artifacts/by-hash/{content_hash}/preview",
-        },
-        {
-            "type": "render_ready",
-            "conversation_id": "conv-non-generated-hash-collision",
-            "url": f"/artifacts/by-hash/{content_hash}/final",
-        },
-    ]
-
-
-@pytest.mark.asyncio
-async def test_render_pipeline_keeps_latest_generated_scene_uuid_mapping(
-    tmp_path, monkeypatch
-) -> None:
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir.mkdir()
-    artifacts_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "generated_scene-123.py"
-    scene_path.write_text("print('new')\n")
-    old_content_hash = "old-hash"
-    new_content_hash = _request_hash(scene_path)
-
-    old_preview = (
-        artifacts_dir / "scenes" / "_root" / "preview" / "generated_scene-123_preview.mp4"
-    )
-    old_final = artifacts_dir / "scenes" / "_root" / "final" / "generated_scene-123_final.mp4"
-    old_preview.parent.mkdir(parents=True, exist_ok=True)
-    old_final.parent.mkdir(parents=True, exist_ok=True)
-    old_preview.write_bytes(b"old-preview")
-    old_final.write_bytes(b"old-final")
-
-    index_path = artifacts_dir / "cache" / "index.json"
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_text(
-        json.dumps(
-            {
-                "by_hash": {
-                    old_content_hash: {
-                        "scene_path": "generated_scene-123.py",
-                        "scene_uuid": "scene-123",
-                        "preview": "_root/preview/generated_scene-123_preview.mp4",
-                        "final": "_root/final/generated_scene-123_final.mp4",
-                        "updated_at": "2026-04-06T12:34:56Z",
-                        "artifact_version": 1,
-                    }
-                },
-                "by_scene_uuid": {"scene-123": old_content_hash},
-            }
-        )
-    )
-
-    new_preview = (
-        artifacts_dir / "scenes" / "_root" / "preview" / "generated_scene-123_preview.mp4"
-    )
-    new_final = artifacts_dir / "scenes" / "_root" / "final" / "generated_scene-123_final.mp4"
-
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == new_content_hash
-        new_preview.write_bytes(b"new-preview")
-        return new_preview
-
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == new_content_hash
-        new_final.write_bytes(b"new-final")
-        return new_final
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        return None
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    await _render_pipeline(
-        scene_path=scene_path,
-        content_hash=new_content_hash,
-        conversation_id="conv-latest-generated",
-    )
-
-    response = _build_client().get("/artifacts/scenes/scene-123")
-
-    assert response.status_code == 200
-    assert response.content == b"new-final"
-
-
-def test_render_queues_and_broadcasts_preview_and_final(tmp_path, monkeypatch, caplog) -> None:
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir.mkdir()
-    scenes_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "queued_scene.py"
-    scene_path.write_text("print('queued')\n")
-    content_hash = _request_hash(scene_path)
-    preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "queued_scene_preview.mp4"
-    final_target = artifacts_dir / "scenes" / "_root" / "final" / "queued_scene_final.mp4"
-    preview_target.parent.mkdir(parents=True, exist_ok=True)
-    final_target.parent.mkdir(parents=True, exist_ok=True)
-
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        preview_target.write_bytes(b"preview")
-        return preview_target
-
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        final_target.write_bytes(b"final")
-        return final_target
-
-    events: list[dict[str, str]] = []
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    client = _build_client()
-    with caplog.at_level("INFO", logger="layersense_controller.router"):
-        response = client.post(
-            "/render",
-            json={"scene_path": str(scene_path), "conversation_id": "conv-queued"},
-        )
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "queued"}
-    assert events == [
-        {
-            "type": "preview_ready",
-            "conversation_id": "conv-queued",
-            "url": f"/artifacts/by-hash/{content_hash}/preview",
-        },
-        {
-            "type": "render_ready",
-            "conversation_id": "conv-queued",
-            "url": f"/artifacts/by-hash/{content_hash}/final",
-        },
-    ]
-    assert preview_target.exists()
-    assert final_target.exists()
-    index_data = json.loads((artifacts_dir / "cache" / "index.json").read_text())
-    assert index_data["by_hash"][content_hash] == {
-        "scene_path": "queued_scene.py",
-        "scene_uuid": "queued_scene",
-        "preview": "_root/preview/queued_scene_preview.mp4",
-        "final": "_root/final/queued_scene_final.mp4",
-        "updated_at": index_data["by_hash"][content_hash]["updated_at"],
-        "artifact_version": 1,
     }
-    assert index_data["by_scene_uuid"] == {"queued_scene": content_hash}
-
-    artifact_client = _build_client()
-    preview_response = artifact_client.get(f"/artifacts/by-hash/{content_hash}/preview")
-    final_response = artifact_client.get(f"/artifacts/by-hash/{content_hash}/final")
-
-    assert preview_response.status_code == 200
-    assert preview_response.content == b"preview"
-    assert final_response.status_code == 200
-    assert final_response.content == b"final"
-    assert [record.message for record in caplog.records] == [
-        f"render started for conv-queued: {scene_path}",
-        f"preview ready for conv-queued: {preview_target}",
-        f"render ready for conv-queued: {final_target}",
-    ]
-
-
-def test_render_queued_path_uses_canonical_scene_outputs_for_cache_check(
-    tmp_path, monkeypatch
-) -> None:
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir.mkdir()
-    scenes_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "demo_scene.py"
-    scene_path.write_text("print('demo')\n")
-    content_hash = _request_hash(scene_path)
-
-    legacy_preview = artifacts_dir / f"{content_hash}_preview.mp4"
-    legacy_final = artifacts_dir / f"{content_hash}_final.mp4"
-    legacy_preview.write_bytes(b"legacy-preview")
-    legacy_final.write_bytes(b"legacy-final")
-
-    preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
-    final_target = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
-    preview_target.parent.mkdir(parents=True, exist_ok=True)
-    final_target.parent.mkdir(parents=True, exist_ok=True)
-
-    events: list[dict[str, str]] = []
-
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        preview_target.write_bytes(b"preview")
-        return preview_target
-
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        final_target.write_bytes(b"final")
-        return final_target
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    client = _build_client()
-    response = client.post(
-        "/render",
-        json={"scene_path": str(scene_path), "conversation_id": "conv-canonical"},
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "queued"}
-    assert preview_target.exists()
-    assert final_target.exists()
-    assert events == [
-        {
-            "type": "preview_ready",
-            "conversation_id": "conv-canonical",
-            "url": f"/artifacts/by-hash/{content_hash}/preview",
-        },
-        {
-            "type": "render_ready",
-            "conversation_id": "conv-canonical",
-            "url": f"/artifacts/by-hash/{content_hash}/final",
-        },
-    ]
-
-
-@pytest.mark.asyncio
-async def test_render_pipeline_broadcasts_cached_final_after_rendering_missing_preview(
-    tmp_path, monkeypatch
-) -> None:
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir.mkdir()
-    scenes_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "demo_scene.py"
-    scene_path.write_text("print('demo')\n")
-    content_hash = _request_hash(scene_path)
-
-    preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
-    final_target = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
-    preview_target.parent.mkdir(parents=True, exist_ok=True)
-    final_target.parent.mkdir(parents=True, exist_ok=True)
-    final_target.write_bytes(b"final")
-    index_path = artifacts_dir / "cache" / "index.json"
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_text(
-        json.dumps(
-            {
-                "by_hash": {
-                    content_hash: {
-                        "scene_path": "demo_scene.py",
-                        "scene_uuid": "demo_scene",
-                        "preview": None,
-                        "final": "_root/final/demo_scene_final.mp4",
-                        "updated_at": "2026-04-06T12:34:56Z",
-                        "artifact_version": 1,
-                    }
-                },
-                "by_scene_uuid": {"demo_scene": content_hash},
-            }
-        )
-    )
-
-    events: list[dict[str, str]] = []
-
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        preview_target.write_bytes(b"preview")
-        return preview_target
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    await _render_pipeline(
-        scene_path=scene_path,
-        content_hash=content_hash,
-        conversation_id="conv-partial-preview",
-    )
-
-    assert events == [
-        {
-            "type": "preview_ready",
-            "conversation_id": "conv-partial-preview",
-            "url": f"/artifacts/by-hash/{content_hash}/preview",
-        },
-        {
-            "type": "render_ready",
-            "conversation_id": "conv-partial-preview",
-            "url": f"/artifacts/by-hash/{content_hash}/final",
-        },
-    ]
-
-
-@pytest.mark.asyncio
-async def test_render_pipeline_broadcasts_cached_preview_before_rendering_missing_final(
-    tmp_path, monkeypatch
-) -> None:
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir.mkdir()
-    scenes_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "demo_scene.py"
-    scene_path.write_text("print('demo')\n")
-    content_hash = _request_hash(scene_path)
-
-    preview_target = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
-    final_target = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
-    preview_target.parent.mkdir(parents=True, exist_ok=True)
-    final_target.parent.mkdir(parents=True, exist_ok=True)
-    preview_target.write_bytes(b"preview")
-    index_path = artifacts_dir / "cache" / "index.json"
-    index_path.parent.mkdir(parents=True, exist_ok=True)
-    index_path.write_text(
-        json.dumps(
-            {
-                "by_hash": {
-                    content_hash: {
-                        "scene_path": "demo_scene.py",
-                        "scene_uuid": "demo_scene",
-                        "preview": "_root/preview/demo_scene_preview.mp4",
-                        "final": None,
-                        "updated_at": "2026-04-06T12:34:56Z",
-                        "artifact_version": 1,
-                    }
-                },
-                "by_scene_uuid": {"demo_scene": content_hash},
-            }
-        )
-    )
-
-    events: list[dict[str, str]] = []
-
-    async def fake_render_final(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        final_target.write_bytes(b"final")
-        return final_target
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_final", fake_render_final)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    await _render_pipeline(
-        scene_path=scene_path,
-        content_hash=content_hash,
-        conversation_id="conv-partial-final",
-    )
-
-    assert events == [
-        {
-            "type": "preview_ready",
-            "conversation_id": "conv-partial-final",
-            "url": f"/artifacts/by-hash/{content_hash}/preview",
-        },
-        {
-            "type": "render_ready",
-            "conversation_id": "conv-partial-final",
-            "url": f"/artifacts/by-hash/{content_hash}/final",
-        },
-    ]
-
-
-@pytest.mark.asyncio
-async def test_render_pipeline_logs_and_broadcasts_render_error(
-    tmp_path, monkeypatch, caplog
-) -> None:
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir.mkdir()
-    scenes_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "render_error_scene.py"
-    scene_path.write_text("print('broken')\n")
-    content_hash = _request_hash(scene_path)
-    render_error = RenderError("manim exited with code 1", "traceback lines")
-
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        raise render_error
-
-    events: list[dict[str, str]] = []
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    with caplog.at_level("WARNING", logger="layersense_controller.router"):
-        await _render_pipeline(
-            scene_path=scene_path,
-            content_hash=content_hash,
-            conversation_id="conv-render-error",
-        )
-
-    assert events == [
-        {
-            "type": "render_failed",
-            "conversation_id": "conv-render-error",
-            "error": "manim exited with code 1",
-            "stderr": "traceback lines",
-        }
-    ]
-    assert [record.message for record in caplog.records if record.levelname == "WARNING"] == [
-        (
-            "render failed for conv-render-error at "
-            f"{scene_path}: manim exited with code 1; stderr=traceback lines"
-        )
-    ]
-
-
-@pytest.mark.asyncio
-async def test_render_pipeline_broadcasts_failure_for_unexpected_errors(
-    tmp_path, monkeypatch
-) -> None:
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir = tmp_path / "layersense_scenes"
-    artifacts_dir.mkdir()
-    scenes_dir.mkdir()
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-
-    scene_path = scenes_dir / "broken_scene.py"
-    scene_path.write_text("print('broken')\n")
-    content_hash = _request_hash(scene_path)
-
-    async def fake_render_preview(scene_path_arg, content_hash_arg, render_options_arg=None):
-        assert scene_path_arg == scene_path
-        assert content_hash_arg == content_hash
-        raise RuntimeError("preview exploded")
-
-    events: list[dict[str, str]] = []
-
-    async def fake_broadcast(event: dict[str, str]) -> None:
-        events.append(event)
-
-    monkeypatch.setattr("layersense_controller.router.render_preview", fake_render_preview)
-    monkeypatch.setattr("layersense_controller.router.manager.broadcast", fake_broadcast)
-
-    await _render_pipeline(
-        scene_path=scene_path,
-        content_hash=content_hash,
-        conversation_id="conv-fail",
-    )
-
-    assert events == [
-        {
-            "type": "render_failed",
-            "conversation_id": "conv-fail",
-            "error": "preview exploded",
-            "stderr": "",
-        }
-    ]
+    assert queued[-1] == {
+        "job_id": "job-manual",
+        "scene_path": str(scene_path),
+        "content_hash": content_hash,
+        "conversation_id": "conv-manual-scene",
+        "render_options": RenderRequest.model_validate(
+            {"scene_path": str(scene_path), "conversation_id": "conv-manual-scene"}
+        ).render_options,
+    }

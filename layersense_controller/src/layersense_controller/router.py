@@ -1,12 +1,13 @@
-import logging
+import uuid
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from layersense_domain.models import RenderOptions
 from pydantic import BaseModel, Field
 
+from layersense_controller.broker import get_job_store
 from layersense_controller.cache import (
     hash_render_request,
     lookup_cached_artifacts,
@@ -14,17 +15,15 @@ from layersense_controller.cache import (
     store_cached_artifacts,
 )
 from layersense_controller.config import settings
-from layersense_controller.render import (
-    RenderError,
-    _raw_output_path,
-    _scene_path_relative_to_scenes_dir,
-    render_final,
-    render_preview,
+from layersense_controller.render import RenderError, _scene_path_relative_to_scenes_dir
+from layersense_controller.render_jobs import RenderJobSnapshot
+from layersense_controller.render_runtime import (
+    artifact_url_by_hash,
+    is_generated_scene_path,
+    scene_uuid_from_scene_path,
 )
-from layersense_controller.websocket_manager import manager
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
 
 
 class RenderRequest(BaseModel):
@@ -33,21 +32,36 @@ class RenderRequest(BaseModel):
     render_options: RenderOptions = Field(default_factory=RenderOptions)
 
 
-def _scene_uuid_from_scene_path(scene_path: Path) -> str:
-    stem = scene_path.stem
-    if stem.startswith("generated_"):
-        generated_uuid = stem.removeprefix("generated_")
-        if generated_uuid:
-            return generated_uuid
-    return stem
+class RenderQueueResponse(BaseModel):
+    job_id: str
+    job: RenderJobSnapshot
 
 
-def _is_generated_scene_path(scene_path: Path) -> bool:
-    return scene_path.stem.startswith("generated_")
+def create_job_id() -> str:
+    return uuid.uuid4().hex
 
 
-def _artifact_url_by_hash(content_hash: str, kind: Literal["preview", "final"]) -> str:
-    return f"/artifacts/by-hash/{content_hash}/{kind}"
+async def enqueue_render_job(
+    *,
+    job_id: str,
+    scene_path: str,
+    content_hash: str,
+    conversation_id: str,
+    render_options: RenderOptions,
+) -> None:
+    from layersense_controller.render_tasks import run_render_job
+
+    await run_render_job.kiq(
+        job_id=job_id,
+        scene_path=scene_path,
+        content_hash=content_hash,
+        conversation_id=conversation_id,
+        render_options=request_render_options_payload(render_options),
+    )
+
+
+def request_render_options_payload(render_options: RenderOptions) -> dict[str, str | None]:
+    return render_options.model_dump(mode="json", exclude_none=False)
 
 
 def _scene_artifact_path(relative_path: str) -> Path:
@@ -69,24 +83,9 @@ def _artifact_response_from_scene_relative(relative_path: str) -> FileResponse:
     return FileResponse(path=candidate, media_type="video/mp4", filename=candidate.name)
 
 
-def _scene_relative_artifact_path(path: Path) -> str:
-    scenes_root = (settings.artifacts_dir / "scenes").resolve()
-    return path.resolve().relative_to(scenes_root).as_posix()
-
-
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@router.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket) -> None:
-    await manager.connect(ws)
-    try:
-        while True:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(ws)
 
 
 @router.get("/artifacts/by-hash/{content_hash}/{kind}")
@@ -135,155 +134,74 @@ async def get_artifact(artifact_path: str) -> FileResponse:
 
 
 @router.post("/render")
-async def render(request: RenderRequest, background_tasks: BackgroundTasks) -> dict[str, str]:
+async def render(request: RenderRequest) -> RenderQueueResponse:
     scene_path = Path(request.scene_path)
-
     if not scene_path.exists() or not scene_path.is_file():
         raise HTTPException(status_code=404, detail="Scene file not found")
 
     try:
-        _scene_path_relative_to_scenes_dir(scene_path)
+        scene_relative_path = _scene_path_relative_to_scenes_dir(scene_path)
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    content_hash = hash_render_request(
-        scene_path,
-        request.render_options.model_dump(mode="json", exclude_none=True),
-    )
-    scene_uuid = _scene_uuid_from_scene_path(scene_path)
+    render_options_payload = request_render_options_payload(request.render_options)
+    content_hash = hash_render_request(scene_path, render_options_payload)
     cached = lookup_cached_artifacts(content_hash)
+    scene_uuid = scene_uuid_from_scene_path(scene_path)
+    job_id = create_job_id()
 
-    if cached and cached["preview"] and cached["final"]:
+    if (
+        cached
+        and cached["preview"]
+        and cached["final"]
+        and (cached["scene_uuid"] == scene_uuid or is_generated_scene_path(scene_path))
+    ):
         if cached["scene_uuid"] != scene_uuid:
-            if not _is_generated_scene_path(scene_path):
-                background_tasks.add_task(
-                    _render_pipeline,
-                    scene_path=scene_path,
-                    content_hash=content_hash,
-                    conversation_id=request.conversation_id,
-                    render_options=request.render_options,
-                )
-                return {"status": "queued"}
-
             store_cached_artifacts(
                 content_hash=content_hash,
                 scene_uuid=scene_uuid,
-                scene_path=_scene_path_relative_to_scenes_dir(scene_path).as_posix(),
+                scene_path=scene_relative_path.as_posix(),
                 preview=cached["preview"],
                 final=cached["final"],
             )
-
-        await manager.broadcast(
-            {
-                "type": "artifact_ready",
-                "conversation_id": request.conversation_id,
-                "preview_url": _artifact_url_by_hash(content_hash, "preview"),
-                "final_url": _artifact_url_by_hash(content_hash, "final"),
-            }
+        job = await get_job_store().create_completed_job(
+            job_id=job_id,
+            conversation_id=request.conversation_id,
+            preview_url=artifact_url_by_hash(content_hash, "preview"),
+            final_url=artifact_url_by_hash(content_hash, "final"),
         )
-        return {"status": "cached"}
+        return RenderQueueResponse(job_id=job_id, job=job)
 
-    background_tasks.add_task(
-        _render_pipeline,
-        scene_path=scene_path,
+    job = await get_job_store().create_queued_job(
+        job_id=job_id, conversation_id=request.conversation_id
+    )
+    await enqueue_render_job(
+        job_id=job_id,
+        scene_path=str(scene_path),
         content_hash=content_hash,
         conversation_id=request.conversation_id,
         render_options=request.render_options,
     )
-    return {"status": "queued"}
+    return RenderQueueResponse(job_id=job_id, job=job)
 
 
-async def _render_pipeline(
-    scene_path: Path,
-    content_hash: str,
-    conversation_id: str,
-    render_options: RenderOptions | None = None,
-) -> None:
-    cached = lookup_cached_artifacts(content_hash)
-    scene_uuid = _scene_uuid_from_scene_path(scene_path)
-    can_reuse_cached_hash = bool(cached) and (
-        cached["scene_uuid"] == scene_uuid or _is_generated_scene_path(scene_path)
+@router.get("/render-jobs/{job_id}")
+async def get_render_job(
+    job_id: str,
+    after_version: int | None = Query(default=None),
+    wait_seconds: int | None = Query(default=None),
+) -> dict[str, object]:
+    requested_wait = (
+        wait_seconds
+        if wait_seconds is not None and wait_seconds > 0
+        else settings.render_job_wait_seconds
     )
-    preview_cached = bool(can_reuse_cached_hash and cached and cached["preview"])
-    final_cached = bool(can_reuse_cached_hash and cached and cached["final"])
-    scene_relative_path = _scene_path_relative_to_scenes_dir(scene_path).as_posix()
-    logger.info("render started for %s: %s", conversation_id, scene_path)
-
-    try:
-        preview_path = _raw_output_path(scene_path, "preview")
-        if not preview_cached:
-            preview_path = await render_preview(scene_path, content_hash, render_options)
-            store_cached_artifacts(
-                content_hash=content_hash,
-                scene_uuid=scene_uuid,
-                scene_path=scene_relative_path,
-                preview=_scene_relative_artifact_path(preview_path),
-            )
-            logger.info("preview ready for %s: %s", conversation_id, preview_path)
-        elif preview_path.exists():
-            store_cached_artifacts(
-                content_hash=content_hash,
-                scene_uuid=scene_uuid,
-                scene_path=scene_relative_path,
-                preview=_scene_relative_artifact_path(preview_path),
-            )
-        if preview_path.exists():
-            await manager.broadcast(
-                {
-                    "type": "preview_ready",
-                    "conversation_id": conversation_id,
-                    "url": _artifact_url_by_hash(content_hash, "preview"),
-                }
-            )
-
-        final_path = _raw_output_path(scene_path, "final")
-        if not final_cached:
-            final_path = await render_final(scene_path, content_hash, render_options)
-            store_cached_artifacts(
-                content_hash=content_hash,
-                scene_uuid=scene_uuid,
-                scene_path=scene_relative_path,
-                final=_scene_relative_artifact_path(final_path),
-            )
-            logger.info("render ready for %s: %s", conversation_id, final_path)
-        elif final_path.exists():
-            store_cached_artifacts(
-                content_hash=content_hash,
-                scene_uuid=scene_uuid,
-                scene_path=scene_relative_path,
-                final=_scene_relative_artifact_path(final_path),
-            )
-        if final_path.exists():
-            await manager.broadcast(
-                {
-                    "type": "render_ready",
-                    "conversation_id": conversation_id,
-                    "url": _artifact_url_by_hash(content_hash, "final"),
-                }
-            )
-    except RenderError as exc:
-        logger.warning(
-            "render failed for %s at %s: %s; stderr=%s",
-            conversation_id,
-            scene_path,
-            str(exc),
-            exc.stderr,
-        )
-        await manager.broadcast(
-            {
-                "type": "render_failed",
-                "conversation_id": conversation_id,
-                "error": str(exc),
-                "stderr": exc.stderr,
-            }
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("render failed for %s", conversation_id)
-        await manager.broadcast(
-            {
-                "type": "render_failed",
-                "conversation_id": conversation_id,
-                "error": str(exc),
-                "stderr": "",
-            }
-        )
+    wait = min(requested_wait, settings.render_job_max_wait_seconds)
+    job = await get_job_store().wait_for_newer_version(
+        job_id,
+        after_version=after_version,
+        wait_seconds=wait,
+    )
+    if job is None:
+        raise HTTPException(status_code=404, detail="Render job not found")
+    return job.model_dump()

@@ -11,7 +11,7 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 
 - `layersense_frontend/` contains a stock-Excalidraw React app with prompt input, generate flow, and preview/final render UI.
 - `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload, normalizes it into a typed internal scene model, extracts allowlisted render options, and writes generated Manim scene files.
-- `layersense_controller/` can watch scenes, queue renders, apply explicit per-request render options, render Manim outputs with packaged config files, cache artifacts, and broadcast render events.
+- `layersense_controller/` queues render jobs, stores ephemeral job state in Redis, applies explicit per-request render options, runs Manim renders through a Taskiq worker, and serves cached artifacts over stable HTTP routes.
 - The full end-to-end workflow is partially implemented, and the repo now includes dedicated Python `e2e` tests for the live local stack, but real render reliability issues still remain before it should be treated as production-ready.
 
 ## Current Architecture
@@ -20,9 +20,9 @@ The project currently targets a simple local-developer architecture:
 
 1. Browser frontend captures a structured Excalidraw `scene` snapshot and prompt.
 2. `layersense_agent` normalizes the Excalidraw payload into a typed internal scene model, extracts allowlisted render options such as Excalidraw background color, then generates Manim code and writes a scene file.
-3. Frontend explicitly queues a render with `layersense_controller`, including structured `render_options` returned by the agent.
-4. Controller renders preview/final artifacts and serves them over HTTP.
-5. Frontend listens for render events over WebSocket and updates the player.
+3. Frontend explicitly queues a render with `layersense_controller`, including structured `render_options`, and receives a `job_id` plus initial job snapshot.
+4. Controller short-circuits cached hits or enqueues one Taskiq job for preview then final rendering.
+5. Frontend long-polls `GET /render-jobs/{job_id}` until preview/final artifacts are available.
 
 The controller watcher code remains in the repo for future manual-edit rerender workflows, but it is not part of the default proof-of-concept browser loop.
 
@@ -86,6 +86,8 @@ This starts:
 - `frontend` at `http://localhost:3000`
 - `agent` at `http://localhost:8000`
 - `controller` at `http://localhost:8001`
+- `redis` on the compose network for render jobs and Taskiq transport
+- `controller-worker` on the compose network for background preview/final rendering
 
 Run the dedicated `e2e` suite against an already-running local stack with:
 
@@ -99,7 +101,7 @@ Run the assistant-friendly reproducible end-to-end path with:
 just test-e2e
 ```
 
-This starts an ephemeral compose project built from `docker-compose.yml` plus `docker-compose.e2e.yml`. That project contains `frontend`, `agent`, `controller`, and `e2e-runner` on a shared compose network, and the runner executes the full test suite including live-stack `e2e` tests.
+This starts an ephemeral compose project built from `docker-compose.yml` plus `docker-compose.e2e.yml`. That project contains `frontend`, `agent`, `controller`, `redis`, `controller-worker`, and `e2e-runner` on a shared compose network, and the runner executes the full test suite including live-stack `e2e` tests.
 
 Notes for `just test-e2e`:
 
@@ -162,8 +164,9 @@ The detailed taxonomy rationale and rollout notes live in:
 Notes:
 
 - Export `OPENAI_API_KEY` in your shell before running `just docker`.
-- The current compose stack intentionally omits Redis because the implemented local flow does not use it.
+- The current compose stack requires Redis because render job state and Taskiq transport both depend on it.
 - Shared host-mounted directories are used for scene and artifact exchange:
   - `./layersense_artifacts/code`
   - `./layersense_artifacts`
 - Controller render requests must point at scene files inside the configured `layersense_scenes` directory.
+- The cache index still uses file-based locking. In local Docker Desktop environments with shared host volumes, cache-index contention remains a known limitation until a Redis-backed cache-lock follow-up lands.
