@@ -84,8 +84,6 @@ async def run_render_job(
         content_hash=content_hash,
         conversation_id=conversation_id,
         render_options=(
-            RenderOptions.model_validate(render_options)
-            if render_options is not None
-            else None
+            RenderOptions.model_validate(render_options) if render_options is not None else None
         ),
     )
