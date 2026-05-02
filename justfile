@@ -62,8 +62,7 @@ agent-dev:
 test_python:
     @echo "Python Tests"
     just test_python_unit
-    # deactiavate for now since we have no such tests
-    # just test_python_integration
+    just test_python_integration
 
 [private]
 _test_python_unit_coverage_data coverage_file:

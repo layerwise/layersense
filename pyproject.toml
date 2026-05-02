@@ -32,6 +32,7 @@ dev = [
     "black==25.1.0",
     "isort==8.0.1",
     "mypy==1.18.1",
+    "coverage==7.11.0",
     "pre-commit==4.5.1",
     "pytest==8.4.2",
     "pytest-asyncio==1.3.0",
@@ -99,6 +100,9 @@ check_untyped_defs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_return_any = true
+
+[tool.coverage.report]
+omit = ["*/tests/*", "global_tests/*", "*/conftest.py", "*/__init__.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["layersense_agent/tests", "layersense_controller/tests", "tests"]
