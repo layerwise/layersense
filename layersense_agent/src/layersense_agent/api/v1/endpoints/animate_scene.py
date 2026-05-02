@@ -8,12 +8,12 @@ from fastapi import APIRouter, HTTPException
 from layersense_agent.agents.agent import ManimAgentContext, manim_generator, strip_code_fences
 from layersense_agent.models.base import AnimationCreatedResponse, AnimationInputs
 from layersense_agent.services.scene_normalizer import normalize_scene
+from layersense_agent.utils import EXAMPLE_JSON
 from layersense_domain.models import RenderOptions
 
 router = APIRouter()
 
 LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_artifacts/code"))
-EXAMPLE_JSON_PATH = Path("assets/example_json/example_circle_rectangle_freeform.json")
 
 
 @router.post("/animation", response_model=AnimationCreatedResponse)
@@ -21,10 +21,7 @@ async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
     """Translate an Excalidraw canvas + prompt into a Manim scene file."""
     conversation_id = str(uuid4())
 
-    with open(EXAMPLE_JSON_PATH) as f:
-        json_example = json.dumps(json.load(f))
-
-    context = ManimAgentContext(json_example=json_example)
+    context = ManimAgentContext(json_example=EXAMPLE_JSON)
     try:
         normalized_scene = normalize_scene(inputs.scene)
     except ValueError as exc:

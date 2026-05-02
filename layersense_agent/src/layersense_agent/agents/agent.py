@@ -147,29 +147,3 @@ def strip_code_fences(code: str) -> str:
         # drop first line (``` or ```python) and last line (```)
         code = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
     return code.strip()
-
-
-if __name__ == "__main__":
-    with open("./assets/example_json/example_circle_rectangle_freeform.json") as f:
-        json_instruction_example = json.load(f)
-
-    with open("./assets/example_json/example_rectangle_other_rectangle.json") as f:
-        json_prompt_example = json.load(f)
-
-    user_prompt = (
-        "Transform the rectangle on the left to the rectangle on the right."
-        + "\n"
-        + json.dumps(json_prompt_example)
-    )
-
-    context = ManimAgentContext(json_example=json.dumps(json_instruction_example))
-
-    import pdb
-
-    pdb.set_trace()
-
-    result = Runner.run_sync(manim_generator, user_prompt, context=context)
-
-    import pdb
-
-    pdb.set_trace()

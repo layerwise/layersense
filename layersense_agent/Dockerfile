@@ -4,12 +4,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-COPY pyproject.toml .
-COPY README.md .
-COPY src/ src/
-COPY assets/ assets/
+COPY layersense_domain/pyproject.toml layersense_domain/README.md layersense_domain/
+COPY layersense_domain/src/ layersense_domain/src/
 
-RUN uv pip install --system --no-cache .
+COPY layersense_agent/pyproject.toml layersense_agent/README.md layersense_agent/
+COPY layersense_agent/src/ layersense_agent/src/
+COPY layersense_agent/assets/ layersense_agent/assets/
+
+RUN uv pip install --system --no-cache ./layersense_domain ./layersense_agent
 
 FROM base AS debug
 

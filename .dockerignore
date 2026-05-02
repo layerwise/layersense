@@ -1,0 +1,50 @@
+.git
+.github
+.worktrees
+
+# Python caches and virtualenvs
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+**/.venv
+**/venv
+
+# Node / frontend build outputs
+**/node_modules
+**/dist
+**/.vite
+
+# Local editor / OS noise
+**/.DS_Store
+**/.idea
+**/.vscode
+
+# Local runtime artifacts
+layersense_artifacts
+
+# Test and tool caches
+.cache
+
+# Repo-level docs and git metadata are not needed in backend images
+docs
+tests
+
+# Local environment files should never be sent to Docker build context
+.env
+.env.*
+
+# Keep package sources and Docker/build files available
+!README.md
+!pyproject.toml
+!Dockerfile.e2e
+!docker-compose.yml
+!docker-compose.debug.yml
+!docker-compose.e2e.yml
+!scripts/
+!layersense_agent/
+!layersense_controller/
+!layersense_domain/
+!layersense_frontend/

@@ -126,9 +126,9 @@ def _request_with_boundary_failure(
 
 
 def _assert_ok(response: requests.Response, boundary: str) -> None:
-    assert (
-        response.ok
-    ), f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
+    assert response.ok, (
+        f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
+    )
 
 
 def _create_animation(prompt: str) -> dict[str, Any]:
@@ -201,9 +201,9 @@ def _scene_artifact_candidates(
 def _host_scene_path(scene_path: str) -> Path:
     scene_name = Path(scene_path).name
     host_scene_path = _scenes_dir() / scene_name
-    assert (
-        host_scene_path.exists()
-    ), f"scene path returned by stack is not present in host-mounted scenes dir: {host_scene_path}"
+    assert host_scene_path.exists(), (
+        f"scene path returned by stack is not present in host-mounted scenes dir: {host_scene_path}"
+    )
     return host_scene_path
 
 
@@ -308,13 +308,13 @@ def test_frontend_root_serves_layersense_app_shell() -> None:
 
     _assert_ok(response, "frontend root request")
     content_type = response.headers.get("content-type", "")
-    assert (
-        "text/html" in content_type
-    ), f"frontend returned unexpected content type: {content_type}"
+    assert "text/html" in content_type, (
+        f"frontend returned unexpected content type: {content_type}"
+    )
     assert '<div id="root"></div>' in response.text, "frontend root mount marker missing"
-    assert (
-        "/src/main.tsx" in response.text or "/assets/" in response.text
-    ), "frontend app entrypoint marker missing"
+    assert "/src/main.tsx" in response.text or "/assets/" in response.text, (
+        "frontend app entrypoint marker missing"
+    )
 
 
 def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:

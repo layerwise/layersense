@@ -18,7 +18,8 @@ services:
   agent:
     container_name: layersense_agent
     build:
-      context: ./layersense_agent
+      context: .
+      dockerfile: layersense_agent/Dockerfile
     ports:
       - "8000:8000"
     environment:
@@ -30,7 +31,8 @@ services:
   controller:
     container_name: layersense_controller
     build:
-      context: ./layersense_controller
+      context: .
+      dockerfile: layersense_controller/Dockerfile
     ports:
       - "8001:8001"
     environment:
