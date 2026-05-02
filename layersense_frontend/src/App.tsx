@@ -1,10 +1,11 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import './App.css'
 import { CONTROLLER_BASE, createAnimation, queueRender } from './api'
 import { Canvas, type CanvasHandle } from './components/Canvas'
 import { VideoPlayer } from './components/VideoPlayer'
-import { useRenderEvents } from './hooks/useRenderEvents'
+import { useRenderJob } from './hooks/useRenderJob'
+import type { RenderJobSnapshot } from './types'
 
 type AppStatus =
   | 'idle'
@@ -41,46 +42,38 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [finalUrl, setFinalUrl] = useState<string | null>(null)
-  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [initialJob, setInitialJob] = useState<RenderJobSnapshot | null>(null)
   const canvasRef = useRef<CanvasHandle>(null)
 
-  const handleArtifactReady = useCallback((payload: { previewUrl: string; finalUrl: string }) => {
-    setPreviewUrl(normalizeArtifactUrl(payload.previewUrl))
-    setFinalUrl(normalizeArtifactUrl(payload.finalUrl))
-    setStatus('complete')
-    setError(null)
-  }, [])
+  const polledJob = useRenderJob({ jobId, initialJob })
+  const currentJob = polledJob ?? initialJob
 
-  const handlePreviewReady = useCallback((url: string) => {
-    setPreviewUrl(normalizeArtifactUrl(url))
-    setStatus('waiting_for_final')
-  }, [])
+  useEffect(() => {
+    if (!currentJob) return
 
-  const handleRenderReady = useCallback((url: string) => {
-    setFinalUrl(normalizeArtifactUrl(url))
-    setStatus('complete')
-    setError(null)
-  }, [])
+    setPreviewUrl(currentJob.preview_url ? normalizeArtifactUrl(currentJob.preview_url) : null)
+    setFinalUrl(currentJob.final_url ? normalizeArtifactUrl(currentJob.final_url) : null)
+    setError(currentJob.error)
 
-  const handleRenderFailed = useCallback((payload: { error: string; stderr?: string }) => {
-    setError(payload.error)
-    setStatus('error')
-  }, [])
-
-  useRenderEvents({
-    conversationId,
-    onArtifactReady: handleArtifactReady,
-    onPreviewReady: handlePreviewReady,
-    onRenderReady: handleRenderReady,
-    onRenderFailed: handleRenderFailed,
-  })
+    if (currentJob.status === 'failed') {
+      setStatus('error')
+    } else if (currentJob.final_url) {
+      setStatus('complete')
+    } else if (currentJob.preview_url) {
+      setStatus('waiting_for_final')
+    } else {
+      setStatus('waiting_for_preview')
+    }
+  }, [currentJob])
 
   const handleGenerate = useCallback(async () => {
     try {
       setError(null)
       setPreviewUrl(null)
       setFinalUrl(null)
-      setConversationId(null)
+      setJobId(null)
+      setInitialJob(null)
       setStatus('submitting_to_agent')
 
       const snapshot = canvasRef.current?.getSceneSnapshot() ?? {
@@ -90,16 +83,15 @@ function App() {
       }
 
       const animation = await createAnimation({ prompt, scene: snapshot })
-      setConversationId(animation.conversation_id)
-
       setStatus('queueing_render')
-      await queueRender({
+      const renderResponse = await queueRender({
         scene_path: animation.scene_path,
         conversation_id: animation.conversation_id,
         render_options: animation.render_options,
       })
-
-      setStatus('waiting_for_preview')
+      setJobId(renderResponse.job_id)
+      setInitialJob(renderResponse.job)
+      setStatus(renderResponse.job.preview_url ? 'waiting_for_final' : 'waiting_for_preview')
     } catch (requestError) {
       setError(normalizeError(requestError))
       setStatus('error')

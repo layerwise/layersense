@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
 
-import { createAnimation, queueRender } from './api'
+import { createAnimation, getRenderJob, queueRender } from './api'
 
 describe('api client', () => {
   afterEach(() => {
@@ -30,11 +30,23 @@ describe('api client', () => {
     expect(response).toEqual({ conversation_id: 'conv-123', scene_path: '/tmp/scene.py' })
   })
 
-  it('queueRender posts to controller and returns status', async () => {
+  it('queueRender posts to controller and returns a job snapshot', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ status: 'queued' }), {
+        new Response(JSON.stringify({
+          job_id: 'job-123',
+          job: {
+            job_id: 'job-123',
+            conversation_id: 'conv-123',
+            status: 'queued',
+            version: 1,
+            preview_url: null,
+            final_url: null,
+            error: null,
+            stderr: null,
+          },
+        }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
@@ -47,7 +59,34 @@ describe('api client', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scene_path: '/tmp/scene.py', conversation_id: 'conv-123' }),
     })
-    expect(response).toEqual({ status: 'queued' })
+    expect(response.job_id).toBe('job-123')
+    expect(response.job.status).toBe('queued')
+  })
+
+  it('getRenderJob requests the controller job endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          job_id: 'job-123',
+          conversation_id: 'conv-123',
+          status: 'waiting_for_final',
+          version: 2,
+          preview_url: '/artifacts/by-hash/hash/preview',
+          final_url: null,
+          error: null,
+          stderr: null,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    const response = await getRenderJob('job-123', { afterVersion: 1, waitSeconds: 20 })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:8001/render-jobs/job-123?after_version=1&wait_seconds=20',
+      { method: 'GET' },
+    )
+    expect(response.status).toBe('waiting_for_final')
   })
 
   it('createAnimation maps non-2xx responses to errors', async () => {

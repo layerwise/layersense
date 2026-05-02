@@ -15,18 +15,12 @@ import pytest
 import requests
 from layersense_domain.models import RenderOptions
 from requests import Response
-from websockets.sync.client import connect as websocket_connect
 
 pytestmark = [pytest.mark.e2e, pytest.mark.ai]
 
-FRONTEND_BASE = "http://localhost:3000"
-AGENT_BASE = "http://localhost:8000"
-CONTROLLER_BASE = "http://localhost:8001"
-CONTROLLER_WS_URL = "ws://localhost:8001/ws"
 REQUEST_TIMEOUT_SECONDS = 10
 ANIMATION_REQUEST_TIMEOUT_SECONDS = 30
 RENDER_TIMEOUT_SECONDS = 30
-POLL_INTERVAL_SECONDS = 1
 SCENE_PAYLOAD = {
     "elements": [
         {
@@ -71,10 +65,6 @@ def _controller_base() -> str:
     return os.getenv("LAYERSENSE_E2E_CONTROLLER_BASE", "http://localhost:8001")
 
 
-def _controller_ws_url() -> str:
-    return os.getenv("LAYERSENSE_E2E_CONTROLLER_WS_URL", "ws://localhost:8001/ws")
-
-
 def _repo_root() -> Path:
     override = os.getenv("LAYERSENSE_E2E_REPO_ROOT")
     if override:
@@ -100,24 +90,17 @@ def _scenes_dir() -> Path:
     return _repo_root() / "layersense_artifacts" / "code"
 
 
-def _get_json(url: str) -> requests.Response:
-    return requests.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-
-def _post_json(url: str, payload: dict[str, Any]) -> requests.Response:
-    return requests.post(url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
-
-
 def _request_with_boundary_failure(
     method: str,
     url: str,
     boundary: str,
     payload: dict[str, Any] | None = None,
     timeout: int = REQUEST_TIMEOUT_SECONDS,
+    params: dict[str, Any] | None = None,
 ) -> Response:
     try:
         if method == "GET":
-            return requests.get(url, timeout=timeout)
+            return requests.get(url, timeout=timeout, params=params)
         if method == "POST":
             return requests.post(url, json=payload, timeout=timeout)
     except requests.RequestException as exc:
@@ -148,20 +131,24 @@ def _create_animation(prompt: str) -> dict[str, Any]:
     return body
 
 
-def _queue_render(scene_path: str, conversation_id: str) -> dict[str, Any]:
+def _queue_render(
+    scene_path: str, conversation_id: str, render_options: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    payload = {"scene_path": scene_path, "conversation_id": conversation_id}
+    if render_options is not None:
+        payload["render_options"] = render_options
+
     response = _request_with_boundary_failure(
         "POST",
         urljoin(_controller_base(), "/render"),
         "controller render request",
-        {"scene_path": scene_path, "conversation_id": conversation_id},
+        payload,
     )
     _assert_ok(response, "controller render request")
 
     body = response.json()
-    assert body.get("status") in {
-        "queued",
-        "cached",
-    }, f"controller render returned unexpected body: {body}"
+    assert "job_id" in body, f"controller render returned unexpected body: {body}"
+    assert "job" in body, f"controller render returned unexpected body: {body}"
     return body
 
 
@@ -170,6 +157,32 @@ def _render_options_for_animation(animation: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(render_options, dict):
         return RenderOptions().model_dump(mode="json", exclude_none=True)
     return RenderOptions.model_validate(render_options).model_dump(mode="json", exclude_none=True)
+
+
+def _wait_for_render_job(job_id: str) -> dict[str, Any]:
+    deadline = time.monotonic() + RENDER_TIMEOUT_SECONDS
+    version = None
+    last_job = None
+
+    while time.monotonic() < deadline:
+        params: dict[str, Any] = {}
+        if version is not None:
+            params["after_version"] = version
+            params["wait_seconds"] = 5
+        response = _request_with_boundary_failure(
+            "GET",
+            urljoin(_controller_base(), f"/render-jobs/{job_id}"),
+            "controller render job request",
+            params=params,
+            timeout=REQUEST_TIMEOUT_SECONDS + 5,
+        )
+        _assert_ok(response, "controller render job request")
+        last_job = response.json()
+        version = last_job["version"]
+        if last_job["status"] in {"succeeded", "failed"}:
+            return last_job
+
+    pytest.fail(f"render job {job_id} did not reach a terminal state; last_job={last_job}")
 
 
 def _content_hash_for_scene(scene_path: str, render_options: dict[str, Any] | None = None) -> str:
@@ -237,34 +250,6 @@ def _temporary_known_good_scene(filename: str) -> Any:
             host_scene_path.unlink()
 
 
-@contextmanager
-def _controller_events() -> Any:
-    with websocket_connect(_controller_ws_url()) as websocket:
-        yield websocket
-
-
-def _wait_for_controller_terminal_event(websocket: Any, conversation_id: str) -> dict[str, Any]:
-    deadline = time.monotonic() + RENDER_TIMEOUT_SECONDS
-    last_event: dict[str, Any] | None = None
-
-    while time.monotonic() < deadline:
-        remaining = max(0.1, deadline - time.monotonic())
-        message = websocket.recv(timeout=remaining)
-        event = json.loads(message)
-
-        if event.get("conversation_id") != conversation_id:
-            continue
-
-        last_event = event
-        if event.get("type") in {"artifact_ready", "render_ready", "render_failed"}:
-            return event
-
-    pytest.fail(
-        f"controller websocket terminal event not reached within timeout for {conversation_id}; "
-        f"last_event={last_event}"
-    )
-
-
 def _wait_for_artifacts(
     scene_path: str,
     conversation_id: str | None = None,
@@ -304,7 +289,7 @@ def _wait_for_artifacts(
         ):
             return scene_url, scene_preview_url, preview_url, final_url
 
-        time.sleep(POLL_INTERVAL_SECONDS)
+        time.sleep(1)
 
     pytest.fail(
         "controller terminal artifact state not reached within timeout; "
@@ -346,7 +331,7 @@ def test_agent_accepts_scene_payload_and_writes_scene_file() -> None:
     assert scene_path.is_file(), f"agent returned non-file scene path: {scene_path}"
 
 
-def test_controller_render_emits_terminal_websocket_event_for_known_good_scene() -> None:
+def test_controller_render_completes_for_known_good_scene() -> None:
     health_response = _request_with_boundary_failure(
         "GET",
         urljoin(_controller_base(), "/health"),
@@ -356,16 +341,21 @@ def test_controller_render_emits_terminal_websocket_event_for_known_good_scene()
 
     unique_scene_name = f"smoke_controller_scene_{uuid.uuid4().hex}.py"
     with _temporary_known_good_scene(unique_scene_name) as (_, controller_scene_path):
-        with _controller_events() as websocket:
-            _queue_render(controller_scene_path, "controller-smoke")
-            event = _wait_for_controller_terminal_event(websocket, "controller-smoke")
-            scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
-                controller_scene_path
-            )
+        render_options = RenderOptions().model_dump(mode="json", exclude_none=True)
+        render_response = _queue_render(
+            controller_scene_path,
+            "controller-smoke",
+            render_options,
+        )
+        job = _wait_for_render_job(render_response["job_id"])
+        scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
+            controller_scene_path,
+            render_options=render_options,
+        )
 
-    assert event["type"] in {"artifact_ready", "render_ready", "render_failed"}
-    if event["type"] == "render_failed":
-        pytest.fail(f"controller failed to render known-good smoke scene: {event}")
+    assert job["status"] == "succeeded"
+    assert job["preview_url"].startswith("/artifacts/by-hash/")
+    assert job["final_url"].startswith("/artifacts/by-hash/")
     assert scene_url.startswith(urljoin(_controller_base(), "/artifacts/scenes/"))
     assert scene_preview_url.endswith("?preview=true")
     assert preview_url.endswith("/preview")
@@ -375,32 +365,22 @@ def test_controller_render_emits_terminal_websocket_event_for_known_good_scene()
 def test_api_chain_generate_to_render_completes() -> None:
     animation = _create_animation("Generate and render a simple smoke test animation.")
     render_options = _render_options_for_animation(animation)
-    with _controller_events() as websocket:
-        render_response = _queue_render(animation["scene_path"], animation["conversation_id"])
-        event = _wait_for_controller_terminal_event(websocket, animation["conversation_id"])
+    render_response = _queue_render(
+        animation["scene_path"],
+        animation["conversation_id"],
+        render_options,
+    )
+    job = _wait_for_render_job(render_response["job_id"])
 
-    assert render_response["status"] in {"queued", "cached"}
-    if event["type"] == "artifact_ready":
-        scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
-            animation["scene_path"], animation["conversation_id"], render_options
-        )
-        assert event["preview_url"].startswith("/artifacts/by-hash/")
-        assert event["final_url"].startswith("/artifacts/by-hash/")
-        assert scene_url.startswith(urljoin(_controller_base(), "/artifacts/scenes/"))
-        assert scene_preview_url.endswith("?preview=true")
-        assert preview_url.endswith("/preview")
-        assert final_url.endswith("/final")
-        return
-    if event["type"] == "render_ready":
-        scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
-            animation["scene_path"], animation["conversation_id"], render_options
-        )
-        assert event["url"].startswith("/artifacts/by-hash/")
-        assert scene_url.startswith(urljoin(_controller_base(), "/artifacts/scenes/"))
-        assert scene_preview_url.endswith("?preview=true")
-        assert preview_url.endswith("/preview")
-        assert final_url.endswith("/final")
-        return
+    if job["status"] == "failed":
+        pytest.fail(f"render job failed: {job}")
 
-    assert event["type"] == "render_failed"
-    assert event.get("error"), f"render_failed event missing error: {event}"
+    scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
+        animation["scene_path"], animation["conversation_id"], render_options
+    )
+    assert job["preview_url"].startswith("/artifacts/by-hash/")
+    assert job["final_url"].startswith("/artifacts/by-hash/")
+    assert scene_url.startswith(urljoin(_controller_base(), "/artifacts/scenes/"))
+    assert scene_preview_url.endswith("?preview=true")
+    assert preview_url.endswith("/preview")
+    assert final_url.endswith("/final")

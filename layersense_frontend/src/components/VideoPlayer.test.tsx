@@ -1,9 +1,13 @@
 import { cleanup, render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { VideoPlayer } from './VideoPlayer'
 
 describe('VideoPlayer', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
   it('shows placeholder when no media is available', () => {
     const { getByText, queryByTestId } = render(
       <VideoPlayer previewUrl={null} finalUrl={null} error={null} status="idle" />,
@@ -14,7 +18,6 @@ describe('VideoPlayer', () => {
   })
 
   it('renders preview video without autoplay', () => {
-    cleanup()
     const { getByTestId } = render(
       <VideoPlayer previewUrl="/preview.mp4" finalUrl={null} error={null} status="waiting_for_final" />,
     )
@@ -26,7 +29,6 @@ describe('VideoPlayer', () => {
   })
 
   it('prefers final video source over preview', () => {
-    cleanup()
     const { getByTestId } = render(
       <VideoPlayer
         previewUrl="/preview.mp4"
@@ -41,11 +43,25 @@ describe('VideoPlayer', () => {
   })
 
   it('shows error state when render fails', () => {
-    cleanup()
     const { getByText } = render(
       <VideoPlayer previewUrl={null} finalUrl={null} error="Render failed" status="error" />,
     )
 
     expect(getByText('Render failed')).toBeTruthy()
+  })
+
+  it('keeps preview visible when an error arrives after preview is ready', () => {
+    const { getByTestId, getByText } = render(
+      <VideoPlayer
+        previewUrl="/preview.mp4"
+        finalUrl={null}
+        error="Final render failed"
+        status="error"
+      />,
+    )
+
+    const video = getByTestId('render-video') as HTMLVideoElement
+    expect(video.getAttribute('src')).toContain('/preview.mp4')
+    expect(getByText('Final render failed')).toBeTruthy()
   })
 })

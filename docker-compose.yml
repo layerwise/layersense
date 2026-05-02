@@ -15,6 +15,12 @@ services:
       - agent
       - controller
 
+  redis:
+    container_name: layersense_redis
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   agent:
     container_name: layersense_agent
     build:
@@ -38,6 +44,24 @@ services:
     environment:
       LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
       LAYERSENSE_ARTIFACTS_DIR: /layersense_artifacts
+      LAYERSENSE_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - ./layersense_artifacts/code:/layersense_artifacts/code
+      - ./layersense_artifacts:/layersense_artifacts
+
+  controller-worker:
+    container_name: layersense_controller_worker
+    build:
+      context: ./layersense_controller
+    command: ["taskiq", "worker", "layersense_controller.worker:broker"]
+    environment:
+      LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
+      LAYERSENSE_ARTIFACTS_DIR: /layersense_artifacts
+      LAYERSENSE_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
     volumes:
       - ./layersense_artifacts/code:/layersense_artifacts/code
       - ./layersense_artifacts:/layersense_artifacts

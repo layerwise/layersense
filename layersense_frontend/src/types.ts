@@ -29,34 +29,26 @@ export type RenderQueueRequest = {
   render_options: RenderOptions
 }
 
+export type RenderJobStatus =
+  | 'queued'
+  | 'preview_rendering'
+  | 'waiting_for_final'
+  | 'final_rendering'
+  | 'succeeded'
+  | 'failed'
+
+export type RenderJobSnapshot = {
+  job_id: string
+  conversation_id: string
+  status: RenderJobStatus
+  version: number
+  preview_url: string | null
+  final_url: string | null
+  error: string | null
+  stderr: string | null
+}
+
 export type RenderQueueResponse = {
-  status: 'cached' | 'queued'
+  job_id: string
+  job: RenderJobSnapshot
 }
-
-export type ArtifactReadyEvent = {
-  type: 'artifact_ready'
-  conversation_id: string
-  preview_url: string
-  final_url: string
-}
-
-export type PreviewReadyEvent = {
-  type: 'preview_ready'
-  conversation_id: string
-  url: string
-}
-
-export type RenderReadyEvent = {
-  type: 'render_ready'
-  conversation_id: string
-  url: string
-}
-
-export type RenderFailedEvent = {
-  type: 'render_failed'
-  conversation_id: string
-  error: string
-  stderr?: string
-}
-
-export type RenderEvent = ArtifactReadyEvent | PreviewReadyEvent | RenderReadyEvent | RenderFailedEvent

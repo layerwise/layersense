@@ -17,6 +17,13 @@ services:
     ports: !reset
       - "8901:8001"
 
+  redis:
+    container_name: layersense_redis_e2e
+    ports: !reset []
+
+  controller-worker:
+    container_name: layersense_controller_worker_e2e
+
   e2e-runner:
     build:
       context: .
@@ -28,6 +35,8 @@ services:
       - frontend
       - agent
       - controller
+      - redis
+      - controller-worker
     command: ["sh", "/workspace/scripts/run_e2e.sh"]
     volumes:
       - .:/workspace
