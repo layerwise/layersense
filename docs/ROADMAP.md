@@ -75,6 +75,15 @@ This file is the docs entrypoint for collaborators. It gives a fast overview of 
   - Rollout plan for the current testing command surface and marker taxonomy.
   - Useful when reconciling README/`justfile` guidance with the historical April rollout work.
 
+## Current Testing Milestone
+
+- `layersense_agent` is the first completed backend integration-testing milestone.
+- The authoritative suite now lives under `layersense_agent/tests/integration/` and mixes two complementary styles:
+  - `TestClient(app)` integration tests with only the external model runner patched
+  - VCR-backed API-boundary tests for replayable live-model coverage
+- The latest replay coverage run shows `100%` coverage across `layersense_agent/src/**` from integration tests alone.
+- The next milestone is `layersense_controller`, where repo-level taxonomy verification is still blocked because no `layersense_controller/tests/integration/test_*.py` modules exist yet.
+
 ## How To Navigate Based On Task
 
 - **You need product context:** start with `docs/superpowers/specs/2026-03-07-layersense-architecture-design.md`
@@ -85,6 +94,7 @@ This file is the docs entrypoint for collaborators. It gives a fast overview of 
 - **You need current milestone status:** read `docs/superpowers/specs/2026-03-22-stock-excalidraw-milestone-result.md`
 - **You are fixing reliability issues:** read the two `2026-03-09-*hardening-followups.md` files
 - **You are working on test layout or commands:** read the two `2026-04-18-python-testing-taxonomy-*.md` docs
+- **You are continuing backend integration hardening:** read `README.md` first for the current authoritative testing state, then start with `layersense_controller/src/layersense_controller/router.py` and `tests/test_python_test_taxonomy.py`
 - **You are hardening the Excalidraw payload flow:** read `docs/superpowers/specs/2026-04-24-excalidraw-model-specificity-design.md`, `docs/superpowers/specs/2026-04-24-excalidraw-prompt-bypassing-design.md`, and the matching files under `docs/superpowers/plans/`
 
 ## Near-Term Focus

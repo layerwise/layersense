@@ -141,14 +141,26 @@ Notes:
 LayerSense uses four semantic Python pytest markers:
 
 - `unit`: fast isolated tests
-- `integration`: cassette-backed boundary tests
+- `integration`: cassette-backed or other real boundary tests run outside the full live stack
 - `e2e`: live-stack end-to-end tests
 - `ai`: assistant-authored tests
 
-The current Python workflow now includes representative cassette-backed integration coverage for both core packages:
+Current authoritative state:
 
-- `layersense_agent/tests/integration/test_animation_api.py`
-- `layersense_controller/tests/integration/test_controller_api.py`
+- `layersense_agent` now has a complete integration layer under `layersense_agent/tests/integration/` and currently reaches `100%` coverage for `layersense_agent/src/**` via integration tests alone.
+- The agent integration suite is intentionally split by boundary type:
+  - `test_base_api_endpoints.py`: `TestClient(app)` coverage for `/health` and `/info`
+  - `test_animation_api_with_mocked_agent_runner.py`: API-boundary tests that patch only `Runner.run` and keep the rest of the FastAPI request path real
+  - `test_animation_api.py`: VCR-backed API-boundary tests for the live model path and cassette replay
+- `layersense_controller` does not yet have a real integration suite, and repo-level Python verification still reflects that gap.
+
+What we learned from the `layersense_agent` pass:
+
+- `fastapi.testclient.TestClient(app)` is the right default shape for API-boundary integration tests in this repo.
+- Splitting mocked-boundary and VCR-backed tests into separate modules keeps cassette churn isolated while preserving broad API coverage.
+- Patching only the narrow external seam (`Runner.run`) is enough to exercise nearly all meaningful agent behavior without changing production code.
+- Replay mode is practical when cassette-backed tests fail clearly on missing or mismatched recordings, while record mode stays an explicit refresh step.
+- `layersense_agent` is a good fit for integration-heavy coverage because most of its behavior is reachable through one HTTP boundary and a small number of external seams.
 
 Useful commands:
 
@@ -168,7 +180,9 @@ The detailed taxonomy rationale and rollout notes live in:
 
 Notes:
 
-- Integration coverage helpers in `justfile` rely on the workspace `coverage` dependency and now work again through `just test_python_integration_coverage` and `just test_python_coverage`.
+- `just test_python_integration` and `just test_python_integration_coverage` now work with the current agent integration suite.
+- `just test_python` is still blocked by `tests/test_python_test_taxonomy.py` until `layersense_controller/tests/integration/test_*.py` exists.
+- `just test_python_integration_coverage` currently shows `100%` coverage across `layersense_agent/src/**` and exposes `layersense_controller` as the remaining backend integration gap.
 - Export `OPENAI_API_KEY` in your shell before running `just docker`.
 - The current compose stack requires Redis because render job state and Taskiq transport both depend on it.
 - Shared host-mounted directories are used for scene and artifact exchange:
@@ -176,3 +190,23 @@ Notes:
   - `./layersense_artifacts`
 - Controller render requests must point at scene files inside the configured `layersense_scenes` directory.
 - The cache index still uses file-based locking. In local Docker Desktop environments with shared host volumes, cache-index contention remains a known limitation until a Redis-backed cache-lock follow-up lands.
+
+## Controller Outlook
+
+The next backend hardening pass should focus on `layersense_controller/tests/integration/`.
+
+Recommended first slice for another coding assistant:
+
+1. Add at least one real integration module under `layersense_controller/tests/integration/` to unblock repo-level taxonomy verification.
+2. Start with `TestClient(app)` coverage for the lowest-friction router behavior:
+   - `GET /health`
+   - `POST /render` validation and file-path rejection paths
+   - `GET /render-jobs/{job_id}` not-found and wait-parameter behavior
+   - artifact-route `404` and path-safety checks
+3. Then add higher-value controller integration cases around the queue/cache boundary:
+   - cached render short-circuiting in `/render`
+   - job creation and job-store polling
+   - `/artifacts/by-hash/...` and `/artifacts/scenes/...` serving existing cached outputs
+4. Only after the API-path layer is stable, expand into worker/render-pipeline integration for `render_tasks.py`, `render.py`, and cache-index mutations.
+
+The current coverage report from `just test_python_integration_coverage` makes the controller priorities clear: `router.py`, `cache.py`, `render.py`, `render_jobs.py`, `render_runtime.py`, and `render_tasks.py` are the main remaining sources of uncovered backend behavior.
