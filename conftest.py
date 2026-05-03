@@ -1,4 +1,4 @@
-import json
+from pathlib import Path
 
 import pytest
 
@@ -91,3 +91,19 @@ def vcr_config(request: pytest.FixtureRequest) -> dict[str, object]:
         # NOTE: this can become necessary if we need custom redaction logic
         # "before_record_request": _redact_vcr_request,
     }
+
+
+@pytest.fixture(autouse=True)
+def fail_fast_on_missing_vcr_cassette(request: pytest.FixtureRequest) -> None:
+    """Fail replay-mode VCR tests before execution when the cassette is missing."""
+    if request.config.getoption("integration_mode") != "replay":
+        return
+    if request.node.get_closest_marker("vcr") is None:
+        return
+    cassette_dir = request.getfixturevalue("vcr_cassette_dir")
+    cassette_path = Path(cassette_dir) / f"{request.node.name}.yaml"
+    if cassette_path.exists():
+        return
+    pytest.fail(
+        f"Missing VCR cassette for replay mode: {cassette_path}. Run in refresh mode first."
+    )
