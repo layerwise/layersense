@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -107,3 +108,19 @@ def fail_fast_on_missing_vcr_cassette(request: pytest.FixtureRequest) -> None:
     pytest.fail(
         f"Missing VCR cassette for replay mode: {cassette_path}. Run in refresh mode first."
     )
+
+
+@pytest.fixture(autouse=True)
+def normalize_vcr_secrets(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Normalize credential env vars for cassette-backed tests by integration mode."""
+    if request.node.get_closest_marker("vcr") is None:
+        return
+
+    if _pytest_integration_mode(request.config) == "record":
+        openai_api_key = os.environ.get("OPENAI_API_KEY")
+        if not openai_api_key:
+            pytest.fail("Set OPENAI_API_KEY to record integration cassettes.")
+        monkeypatch.setenv("OPENAI_API_KEY", openai_api_key)
+        return
+
+    monkeypatch.setenv("OPENAI_API_KEY", "dummy")
