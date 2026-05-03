@@ -102,7 +102,7 @@ warn_redundant_casts = true
 warn_return_any = true
 
 [tool.coverage.report]
-omit = ["*/tests/*", "global_tests/*", "*/conftest.py", "*/__init__.py"]
+omit = ["*/tests/*", "*/conftest.py", "*/__init__.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["layersense_agent/tests", "layersense_controller/tests", "tests"]

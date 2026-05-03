@@ -1,0 +1,259 @@
+interactions:
+- request:
+    body: '{"include": [], "input": [{"content": "Animate a square.\n{\"elements\":[{\"id\":\"shape-1\",\"x\":0.0,\"y\":0.0,\"width\":10.0,\"height\":10.0,\"angle\":0.0,\"strokeColor\":\"#000000\",\"backgroundColor\":\"transparent\",\"fillStyle\":\"solid\",\"strokeWidth\":1,\"strokeStyle\":\"solid\",\"opacity\":100.0,\"type\":\"rectangle\"}],\"appState\":{},\"files\":{}}",
+      "role": "user"}], "instructions": "\nYou are an AI assistant, coding expert,
+      and visual artist that converts JSONified vector graphics\nfrom Excalidraw into
+      Manim animation code. Your task is to convert the provided vector graphics\ndata
+      into Manim animation code.\n\n## Input Format:\n- The input is a JSON representation
+      of an Excalidraw canvas.\n- The canvas contains multiple objects like circles,
+      rectangles, and paths.\n- Each object has properties like `x`, `y`, `width`,
+      `height` (all in pixels) as well as\n `stroke`, `strokeWidth`, `fill`, `opcacity`
+      etc.\n- Paths represent freehand drawings with coordinate arrays.\n\nIn addition
+      to the vector data, you will receive the user''s ideas for the animation as
+      well as\nspecific instructions to be realized in the code.\n\n## Example\n#
+      JSON data\n```JSON\n\n{\n  \"type\": \"excalidraw\",\n  \"version\": 2,\n  \"source\":
+      \"http://localhost:3000\",\n  \"elements\": [\n    {\n      \"id\": \"gL9dqt4f1nqQDKafMZYb8\",\n      \"type\":
+      \"rectangle\",\n      \"x\": 560,\n      \"y\": 779,\n      \"width\": 173,\n      \"height\":
+      88,\n      \"angle\": 0,\n      \"strokeColor\": \"#1e1e1e\",\n      \"backgroundColor\":
+      \"transparent\",\n      \"fillStyle\": \"solid\",\n      \"strokeWidth\": 2,\n      \"strokeStyle\":
+      \"solid\",\n      \"roughness\": 0,\n      \"opacity\": 100,\n      \"groupIds\":
+      [],\n      \"frameId\": \"obKLQ9NE-Kj1KcSQWpfo2\",\n      \"index\": \"a2\",\n      \"roundness\":
+      null,\n      \"seed\": 1194426519,\n      \"version\": 41,\n      \"versionNonce\":
+      1530898967,\n      \"isDeleted\": false,\n      \"boundElements\": null,\n      \"updated\":
+      1744654574951,\n      \"link\": null,\n      \"locked\": false\n    },\n    {\n      \"id\":
+      \"ZMxG-BmMhBd3OWPOART01\",\n      \"type\": \"rectangle\",\n      \"x\": 833,\n      \"y\":
+      782,\n      \"width\": 161,\n      \"height\": 218,\n      \"angle\": 0,\n      \"strokeColor\":
+      \"#1e1e1e\",\n      \"backgroundColor\": \"transparent\",\n      \"fillStyle\":
+      \"solid\",\n      \"strokeWidth\": 2,\n      \"strokeStyle\": \"solid\",\n      \"roughness\":
+      0,\n      \"opacity\": 100,\n      \"groupIds\": [],\n      \"frameId\": \"obKLQ9NE-Kj1KcSQWpfo2\",\n      \"index\":
+      \"a3\",\n      \"roundness\": null,\n      \"seed\": 1464102679,\n      \"version\":
+      141,\n      \"versionNonce\": 964224729,\n      \"isDeleted\": false,\n      \"boundElements\":
+      null,\n      \"updated\": 1744654574951,\n      \"link\": null,\n      \"locked\":
+      false\n    }\n  ],\n  \"appState\": {\n    \"gridSize\": 20,\n    \"gridStep\":
+      5,\n    \"gridModeEnabled\": false,\n    \"viewBackgroundColor\": \"#ffffff\"\n  },\n  \"files\":
+      {}\n}\n\n```\n# User Request\n\"First animate the circle with Create, then the
+      Rectangle with GrowFromCenter, then wait a second, then animate the freeform
+      draw.\"\n\n# How to Approach the Problem\n1. Parsing the Excalidraw JSON\nBegin
+      by carefully reading the provided JSON structure. Note that it includes three
+      main drawing elements:\n* An ellipse with equal width and height (which we treat
+      as a circle).\n* A rectangle.\n* A freeform drawn shape (a sequence of points
+      making up a continuous line).\n\n2. Mapping to Manim Primitives\nFor each Excalidraw
+      element, determine which Manim mobject best fits the description:\n* Ellipse
+      (Circle): Since the ellipse has the same width and height, we can map it to
+      a Circle in Manim. Its radius comes from half of the width (or height).\n* Rectangle:
+      The JSON directly gives a rectangle\u2019s dimensions. In Manim, the Rectangle
+      mobject is a natural choice.\n* Freeform Draw: The freeform drawing is represented
+      as a list of (x, y) point coordinates. In Manim, we can use a VMobject (or a
+      subclass like Polygon/Polyline) and set its points using the set_points_as_corners()
+      method so that it traces the shape.\n\n3. Choosing the Animations\nThe user
+      request defines a specific animation sequence:\n* Animate the circle with the
+      Create animation.\n* Animate the rectangle with GrowFromCenter.\n* Pause for
+      one second.\n* Animate the freeform drawing (again, with Create in this example).\n\n4.
+      Handling Coordinates and Scaling\nNote that Excalidraw\u2019s coordinates (and
+      sizes) are in pixels while Manim\u2019s default coordinate\nsystem is unit-based
+      and typically centered around the origin. For simplicity in this example,\ndivide
+      by 100 (an arbitrary scale factor) to make the sizes and positions more manageable.\nIn
+      a complete solution you might want to programmatically convert or better position
+      the shapes\nrelative to each other.\n\n5. Writing the Code\nFinally, write a
+      Manim scene that defines each shape, sets a color (using a default \u201cblack\u201d
+      in this case),\nand then plays the animations in the requested order.\nIMPORTANT
+      DETAIL: While manim examples canonically import everything\nwith `from manim
+      import *`, for clarity and best practices, explicitly import only the necessary
+      classes and functions.\n\n# The Manim Code\n\n```python\nfrom manim import Scene,
+      Circle, Rectangle, VMobject, Create, GrowFromCenter, RIGHT, LEFT\nimport numpy
+      as np\n\nclass ExcalidrawAnimation(Scene):\n    def construct(self):\n        #
+      --- Create the Circle ---\n        # Data: ellipse with width=137, height=137
+      => radius ~137/2.\n        # We use a scale factor (e.g., dividing by 100) to
+      adjust to Manim''s coordinate system.\n        circle = Circle(radius=137/2/100,
+      color=BLACK, stroke_width=2)\n        # Optionally, you could reposition it:
+      here we center at (-2, 0) for clarity.\n        circle.move_to(LEFT * 2)\n\n        #
+      --- Create the Rectangle ---\n        # Data: width=184, height=184.\n        rect
+      = Rectangle(width=184/100, height=184/100, color=BLACK, stroke_width=2)\n        #
+      Position it at a different location; here we move it to the right.\n        rect.move_to(RIGHT
+      * 2)\n\n        # --- Create the Freeform Drawing ---\n        # Data: list
+      of points given in the JSON.\n        # For simplicity, we assume the given
+      points are in the (x, y) plane and scale them.\n        raw_points = [\n            (0,
+      0), (-1, 0), (-20, 5), (-33, 8), (-40, 9), (-56, 12), (-72, 17), (-75, 18),\n            (-76,
+      18), (-76, 19), (-76, 20), (-74, 21), (-59, 28), (5, 47), (33, 54), (55, 58),\n            (74,
+      64), (91, 70), (99, 72), (102, 74), (102, 76), (102, 86), (102, 92), (101, 97),\n            (100,
+      102), (98, 109), (96, 114), (93, 122), (92, 126), (88, 132), (87, 135), (89,
+      139),\n            (94, 146), (97, 151), (102, 157), (106, 163), (111, 166),
+      (115, 170), (115, 171), (116, 173),\n            (118, 178), (119, 183), (120,
+      189), (120, 191), (120, 194), (116, 199), (108, 209), (103, 214),\n            (92,
+      225), (83, 233), (82, 234), (81, 234), (81, 233), (80, 231), (79, 230), (79,
+      228),\n            (78, 227), (77, 225), (74, 223), (72, 221), (69, 220), (65,
+      219), (63, 217), (55, 214),\n            (52, 212), (50, 211), (49, 211), (47,
+      209), (43, 206), (42, 205), (41, 205), (40, 205),\n            (39, 205), (37,
+      207), (36, 208), (35, 209), (34, 210), (33, 212), (33, 214), (33, 216),\n            (32,
+      216), (32, 216)\n        ]\n        # Scale the freeform points:\n        scale_factor
+      = 1/100\n        freeform_points = [np.array([x*scale_factor, y*scale_factor,
+      0]) for (x, y) in raw_points]\n\n        freeform = VMobject(stroke_color=BLACK,
+      stroke_width=2)\n        freeform.set_points_as_corners(freeform_points)\n\n        #
+      --- Animate the Sequence ---\n        # 1. Animate the circle with Create.\n        self.play(Create(circle))\n        #
+      2. Animate the rectangle with GrowFromCenter.\n        self.play(GrowFromCenter(rect))\n        #
+      3. Wait one second.\n        self.wait(1)\n        # 4. Animate the freeform
+      drawing.\n        self.play(Create(freeform))\n```\n\n## Critical Output Rules\n1.
+      The scene class MUST be named `GeneratedScene`. No other name is acceptable.\n2.
+      Output ONLY the raw Python code. Do NOT wrap it in markdown code fences (no
+      ```python).\n3. The code must be a complete, runnable Manim scene file with
+      manim imports.\n", "model": "gpt-5-mini", "tools": []}'
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      Content-Length:
+      - '8393'
+      Content-Type:
+      - application/json
+      Host:
+      - api.openai.com
+      User-Agent:
+      - Agents/Python 0.10.5
+      X-Stainless-Arch:
+      - arm64
+      X-Stainless-Async:
+      - async:asyncio
+      X-Stainless-Lang:
+      - python
+      X-Stainless-OS:
+      - MacOS
+      X-Stainless-Package-Version:
+      - 2.26.0
+      X-Stainless-Runtime:
+      - CPython
+      X-Stainless-Runtime-Version:
+      - 3.14.0
+      authorization:
+      - <redacted>
+      x-stainless-read-timeout:
+      - '600'
+      x-stainless-retry-count:
+      - '0'
+    method: POST
+    uri: https://api.openai.com/v1/responses
+  response:
+    body:
+      string: !!binary |
+        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
+    headers:
+      CF-Cache-Status:
+      - DYNAMIC
+      CF-Ray:
+      - 9f610d920942e519-TXL
+      Connection:
+      - keep-alive
+      Content-Encoding:
+      - gzip
+      Content-Type:
+      - application/json
+      Date:
+      - Sun, 03 May 2026 17:41:01 GMT
+      Server:
+      - cloudflare
+      Strict-Transport-Security:
+      - max-age=31536000; includeSubDomains; preload
+      Transfer-Encoding:
+      - chunked
+      X-Content-Type-Options:
+      - nosniff
+      alt-svc:
+      - h3=":443"; ma=86400
+      openai-organization:
+      - <redacted>
+      openai-processing-ms:
+      - '10892'
+      openai-project:
+      - <redacted>
+      openai-version:
+      - '2020-10-01'
+      set-cookie:
+      - <redacted>
+      x-ratelimit-limit-requests:
+      - '500'
+      x-ratelimit-limit-tokens:
+      - '500000'
+      x-ratelimit-remaining-requests:
+      - '499'
+      x-ratelimit-remaining-tokens:
+      - '499467'
+      x-ratelimit-reset-requests:
+      - 120ms
+      x-ratelimit-reset-tokens:
+      - 63ms
+      x-request-id:
+      - <redacted>
+    status:
+      code: 200
+      message: OK
+version: 1

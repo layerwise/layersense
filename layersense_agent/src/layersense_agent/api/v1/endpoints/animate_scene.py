@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from agents import Runner
+from agents import Runner, set_tracing_disabled
 from fastapi import APIRouter, HTTPException
 from layersense_agent.agents.agent import ManimAgentContext, manim_generator, strip_code_fences
 from layersense_agent.models.base import AnimationCreatedResponse, AnimationInputs
@@ -12,6 +12,7 @@ from layersense_agent.utils import EXAMPLE_JSON
 from layersense_domain.models import RenderOptions
 
 router = APIRouter()
+set_tracing_disabled(True)
 
 LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_artifacts/code"))
 
