@@ -12,7 +12,7 @@
       "pathMappings": [
         {
           "localRoot": "${workspaceFolder}/layersense_agent/src",
-          "remoteRoot": "/app/src"
+          "remoteRoot": "/app/layersense_agent/src"
         }
       ],
       "justMyCode": true
@@ -28,7 +28,23 @@
       "pathMappings": [
         {
           "localRoot": "${workspaceFolder}/layersense_controller/src",
-          "remoteRoot": "/app/src"
+          "remoteRoot": "/app/layersense_controller/src"
+        }
+      ],
+      "justMyCode": true
+    },
+    {
+      "name": "Attach: Controller Taskiq Worker",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5680
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/layersense_controller/src",
+          "remoteRoot": "/app/layersense_controller/src"
         }
       ],
       "justMyCode": true
@@ -37,7 +53,7 @@
   "compounds": [
     {
       "name": "Attach: Full dev stack",
-      "configurations": ["Attach: Agent", "Attach: Controller"]
+      "configurations": ["Attach: Agent", "Attach: Controller", "Attach: Controller Taskiq Worker"]
     }
   ]
 }
