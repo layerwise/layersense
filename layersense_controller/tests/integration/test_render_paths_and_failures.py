@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from layersense_controller.config import settings
 from layersense_controller.render import (
+    CLIFlags,
     RenderError,
     _output_file_path,
     _raw_output_path,
@@ -15,10 +16,10 @@ pytestmark = [pytest.mark.integration, pytest.mark.ai]
 
 
 @pytest.mark.asyncio
-async def test_run_manim_passes_background_color_and_returns_expected_output_path(
+async def test_run_manim_passes_cli_flags_and_returns_expected_output_path(
     monkeypatch, tmp_path
 ) -> None:
-    """Pass background color through to manim and return the expected preview output path."""
+    """Pass supported controller CLI flags through to manim and return the expected preview output path."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scene_path = scenes_dir / "algebra" / "demo_scene.py"
@@ -49,12 +50,14 @@ async def test_run_manim_passes_background_color_and_returns_expected_output_pat
     output = await _run_manim(
         scene_path,
         "preview",
-        RenderOptions(background_color="#112233"),
+        CLIFlags(quality="m", renderer="cairo"),
     )
 
     assert output == artifacts_dir / "scenes" / "algebra" / "preview" / "demo_scene_preview.mp4"
-    assert "--background_color" in recorded["args"]
-    assert "#112233" in recorded["args"]
+    assert "-q" in recorded["args"]
+    assert "m" in recorded["args"]
+    assert "--renderer" in recorded["args"]
+    assert "cairo" in recorded["args"]
 
 
 @pytest.mark.asyncio

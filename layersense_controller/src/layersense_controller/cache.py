@@ -28,10 +28,10 @@ def hash_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def hash_render_request(path: Path, render_options: dict[str, Any] | None = None) -> str:
-    """Return SHA-256 hex digest of file contents plus render options."""
+def hash_render_request(path: Path, cli_flags: dict[str, Any] | None = None) -> str:
+    """Return SHA-256 hex digest of file contents plus controller CLI flags."""
     file_hash = hash_file(path)
-    options_json = json.dumps(render_options or {}, sort_keys=True)
+    options_json = json.dumps(cli_flags or {}, sort_keys=True)
     return hashlib.sha256(f"{file_hash}:{options_json}".encode()).hexdigest()
 
 

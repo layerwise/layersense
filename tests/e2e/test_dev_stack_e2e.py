@@ -13,7 +13,6 @@ from urllib.parse import urljoin
 
 import pytest
 import requests
-from layersense_domain.models import RenderOptions
 from requests import Response
 
 pytestmark = [pytest.mark.e2e, pytest.mark.ai]
@@ -132,11 +131,11 @@ def _create_animation(prompt: str) -> dict[str, Any]:
 
 
 def _queue_render(
-    scene_path: str, conversation_id: str, render_options: dict[str, Any] | None = None
+    scene_path: str, conversation_id: str, cli_flags: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     payload = {"scene_path": scene_path, "conversation_id": conversation_id}
-    if render_options is not None:
-        payload["render_options"] = render_options
+    if cli_flags is not None:
+        payload["cli_flags"] = cli_flags
 
     response = _request_with_boundary_failure(
         "POST",
@@ -150,13 +149,6 @@ def _queue_render(
     assert "job_id" in body, f"controller render returned unexpected body: {body}"
     assert "job" in body, f"controller render returned unexpected body: {body}"
     return body
-
-
-def _render_options_for_animation(animation: dict[str, Any]) -> dict[str, Any]:
-    render_options = animation.get("render_options")
-    if not isinstance(render_options, dict):
-        return RenderOptions().model_dump(mode="json", exclude_none=True)
-    return RenderOptions.model_validate(render_options).model_dump(mode="json", exclude_none=True)
 
 
 def _wait_for_render_job(job_id: str) -> dict[str, Any]:
@@ -185,10 +177,10 @@ def _wait_for_render_job(job_id: str) -> dict[str, Any]:
     pytest.fail(f"render job {job_id} did not reach a terminal state; last_job={last_job}")
 
 
-def _content_hash_for_scene(scene_path: str, render_options: dict[str, Any] | None = None) -> str:
+def _content_hash_for_scene(scene_path: str, cli_flags: dict[str, Any] | None = None) -> str:
     host_scene_path = _host_scene_path(scene_path)
     file_hash = hashlib.sha256(host_scene_path.read_bytes()).hexdigest()
-    options_json = json.dumps(render_options or {}, sort_keys=True)
+    options_json = json.dumps(cli_flags or {}, sort_keys=True)
     return hashlib.sha256(f"{file_hash}:{options_json}".encode()).hexdigest()
 
 
@@ -204,9 +196,9 @@ def _scene_uuid_for_scene(scene_path: str, conversation_id: str | None = None) -
 
 
 def _artifact_candidates(
-    scene_path: str, render_options: dict[str, Any] | None = None
+    scene_path: str, cli_flags: dict[str, Any] | None = None
 ) -> tuple[str, str]:
-    content_hash = _content_hash_for_scene(scene_path, render_options)
+    content_hash = _content_hash_for_scene(scene_path, cli_flags)
     return (
         urljoin(_controller_base(), f"/artifacts/by-hash/{content_hash}/preview"),
         urljoin(_controller_base(), f"/artifacts/by-hash/{content_hash}/final"),
@@ -255,12 +247,12 @@ def _wait_for_artifacts(
     conversation_id: str | None = None,
     preview_url: str | None = None,
     final_url: str | None = None,
-    render_options: dict[str, Any] | None = None,
+    cli_flags: dict[str, Any] | None = None,
 ) -> tuple[str, str, str, str]:
     resolved_preview_url, resolved_final_url = (
         (preview_url, final_url)
         if preview_url is not None and final_url is not None
-        else _artifact_candidates(scene_path, render_options)
+        else _artifact_candidates(scene_path, cli_flags)
     )
     scene_url, scene_preview_url = _scene_artifact_candidates(scene_path, conversation_id)
     deadline = time.monotonic() + RENDER_TIMEOUT_SECONDS
@@ -350,16 +342,16 @@ def test_controller_render_completes_for_known_good_scene() -> None:
 
     unique_scene_name = f"smoke_controller_scene_{uuid.uuid4().hex}.py"
     with _temporary_known_good_scene(unique_scene_name) as (_, controller_scene_path):
-        render_options = RenderOptions().model_dump(mode="json", exclude_none=True)
+        cli_flags = {"quality": "m"}
         render_response = _queue_render(
             controller_scene_path,
             "controller-smoke",
-            render_options,
+            cli_flags,
         )
         job = _wait_for_render_job(render_response["job_id"])
         scene_url, scene_preview_url, preview_url, final_url = _wait_for_artifacts(
             controller_scene_path,
-            render_options=render_options,
+            cli_flags=cli_flags,
         )
 
     assert job["status"] == "succeeded"
@@ -374,11 +366,10 @@ def test_controller_render_completes_for_known_good_scene() -> None:
 def test_api_chain_generate_to_render_completes() -> None:
     """Complete the generate-to-render API chain across the live stack."""
     animation = _create_animation("Generate and render a simple smoke test animation.")
-    render_options = _render_options_for_animation(animation)
     render_response = _queue_render(
         animation["scene_path"],
         animation["conversation_id"],
-        render_options,
+        {},
     )
     job = _wait_for_render_job(render_response["job_id"])
 
@@ -390,7 +381,7 @@ def test_api_chain_generate_to_render_completes() -> None:
         animation["conversation_id"],
         preview_url=urljoin(_controller_base(), job["preview_url"]),
         final_url=urljoin(_controller_base(), job["final_url"]),
-        render_options=render_options,
+        cli_flags={},
     )
     assert job["preview_url"].startswith("/artifacts/by-hash/")
     assert job["final_url"].startswith("/artifacts/by-hash/")

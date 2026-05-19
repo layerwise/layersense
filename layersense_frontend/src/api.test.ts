@@ -52,12 +52,20 @@ describe('api client', () => {
         }),
       )
 
-    const response = await queueRender({ scene_path: '/tmp/scene.py', conversation_id: 'conv-123' })
+    const response = await queueRender({
+      scene_path: '/tmp/scene.py',
+      conversation_id: 'conv-123',
+      cli_flags: { quality: 'm' },
+    })
 
     expect(fetchMock).toHaveBeenCalledWith('http://localhost:8001/render', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scene_path: '/tmp/scene.py', conversation_id: 'conv-123' }),
+      body: JSON.stringify({
+        scene_path: '/tmp/scene.py',
+        conversation_id: 'conv-123',
+        cli_flags: { quality: 'm' },
+      }),
     })
     expect(response.job_id).toBe('job-123')
     expect(response.job.status).toBe('queued')
@@ -111,7 +119,7 @@ describe('api client', () => {
     )
 
     await expect(
-      queueRender({ scene_path: '/tmp/scene.py', conversation_id: 'conv-123' }),
+      queueRender({ scene_path: '/tmp/scene.py', conversation_id: 'conv-123', cli_flags: {} }),
     ).rejects.toThrow('POST http://localhost:8001/render failed (500): internal error')
   })
 })

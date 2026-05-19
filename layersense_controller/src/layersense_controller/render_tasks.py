@@ -1,11 +1,9 @@
 from pathlib import Path
 
-from layersense_domain.models import RenderOptions
-
 from layersense_controller.broker import broker, get_job_store
 from layersense_controller.cache import store_cached_artifacts
 from layersense_controller.config import settings
-from layersense_controller.render import RenderError, render_final, render_preview
+from layersense_controller.render import CLIFlags, RenderError, render_final, render_preview
 from layersense_controller.render_runtime import (
     artifact_url_by_hash,
     scene_relative_artifact_path,
@@ -18,7 +16,7 @@ async def _run_render_pipeline(
     scene_path: Path,
     content_hash: str,
     conversation_id: str,
-    render_options: RenderOptions | None = None,
+    cli_flags: CLIFlags | None = None,
 ) -> None:
     del conversation_id
 
@@ -31,7 +29,7 @@ async def _run_render_pipeline(
 
     try:
         await get_job_store().update_job(job_id, "preview_rendering")
-        preview_path = await render_preview(scene_path, content_hash, render_options)
+        preview_path = await render_preview(scene_path, content_hash, cli_flags)
         store_cached_artifacts(
             content_hash=content_hash,
             scene_uuid=scene_uuid_from_scene_path(scene_path),
@@ -45,7 +43,7 @@ async def _run_render_pipeline(
             preview_url=preview_url,
         )
         await get_job_store().update_job(job_id, "final_rendering")
-        final_path = await render_final(scene_path, content_hash, render_options)
+        final_path = await render_final(scene_path, content_hash, cli_flags)
         store_cached_artifacts(
             content_hash=content_hash,
             scene_uuid=scene_uuid_from_scene_path(scene_path),
@@ -76,14 +74,12 @@ async def run_render_job(
     scene_path: str,
     content_hash: str,
     conversation_id: str,
-    render_options: dict[str, str | None] | None = None,
+    cli_flags: dict[str, object] | None = None,
 ) -> None:
     await _run_render_pipeline(
         job_id=job_id,
         scene_path=Path(scene_path),
         content_hash=content_hash,
         conversation_id=conversation_id,
-        render_options=(
-            RenderOptions.model_validate(render_options) if render_options is not None else None
-        ),
+        cli_flags=CLIFlags.model_validate(cli_flags) if cli_flags is not None else None,
     )

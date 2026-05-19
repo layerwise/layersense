@@ -18,9 +18,8 @@ def _build_client() -> TestClient:
     return TestClient(app)
 
 
-def _request_hash(scene_path: Path, background_color: str | None = None) -> str:
-    render_options = {"background_color": background_color}
-    return hash_render_request(scene_path, render_options)
+def _request_hash(scene_path: Path, cli_flags: dict[str, object] | None = None) -> str:
+    return hash_render_request(scene_path, cli_flags)
 
 
 def test_health() -> None:
@@ -31,17 +30,18 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_render_request_accepts_background_color() -> None:
-    """Validate background color render options on render requests."""
+def test_render_request_accepts_cli_flags_body() -> None:
+    """Validate controller CLI flags on render requests."""
     request = RenderRequest.model_validate(
         {
             "scene_path": "/tmp/generated_123.py",
             "conversation_id": "conversation-123",
-            "render_options": {"background_color": "#112233"},
+            "cli_flags": {"quality": "m", "renderer": "cairo"},
         }
     )
 
-    assert request.render_options.background_color == "#112233"
+    assert request.cli_flags.quality == "m"
+    assert request.cli_flags.renderer == "cairo"
 
 
 def test_render_returns_404_for_missing_file(tmp_path, monkeypatch) -> None:
@@ -90,10 +90,8 @@ def test_render_returns_400_for_scene_outside_configured_scenes_dir(tmp_path, mo
     assert "configured scenes_dir" in response.json()["detail"]
 
 
-def test_render_cache_identity_changes_when_background_color_changes(
-    tmp_path, monkeypatch
-) -> None:
-    """Include render options in the queued render cache identity."""
+def test_render_cache_identity_changes_when_cli_flags_change(tmp_path, monkeypatch) -> None:
+    """Include controller CLI flags in the queued render cache identity."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
@@ -139,7 +137,7 @@ def test_render_cache_identity_changes_when_background_color_changes(
         json={
             "scene_path": str(scene_path),
             "conversation_id": "conversation-1",
-            "render_options": {"background_color": "#000000"},
+            "cli_flags": {"quality": "m"},
         },
     )
     second = client.post(
@@ -147,7 +145,7 @@ def test_render_cache_identity_changes_when_background_color_changes(
         json={
             "scene_path": str(scene_path),
             "conversation_id": "conversation-2",
-            "render_options": {"background_color": "#ffffff"},
+            "cli_flags": {"quality": "h"},
         },
     )
 
@@ -163,34 +161,34 @@ def test_render_cache_identity_changes_when_background_color_changes(
         {
             "job_id": "job-1",
             "scene_path": str(scene_path),
-            "content_hash": _request_hash(scene_path, background_color="#000000"),
+            "content_hash": _request_hash(scene_path, {"quality": "m"}),
             "conversation_id": "conversation-1",
-            "render_options": RenderRequest.model_validate(
+            "cli_flags": RenderRequest.model_validate(
                 {
                     "scene_path": str(scene_path),
                     "conversation_id": "conversation-1",
-                    "render_options": {"background_color": "#000000"},
+                    "cli_flags": {"quality": "m"},
                 }
-            ).render_options,
+            ).cli_flags,
         },
         {
             "job_id": "job-2",
             "scene_path": str(scene_path),
-            "content_hash": _request_hash(scene_path, background_color="#ffffff"),
+            "content_hash": _request_hash(scene_path, {"quality": "h"}),
             "conversation_id": "conversation-2",
-            "render_options": RenderRequest.model_validate(
+            "cli_flags": RenderRequest.model_validate(
                 {
                     "scene_path": str(scene_path),
                     "conversation_id": "conversation-2",
-                    "render_options": {"background_color": "#ffffff"},
+                    "cli_flags": {"quality": "h"},
                 }
-            ).render_options,
+            ).cli_flags,
         },
     ]
 
 
-def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeypatch) -> None:
-    """Thread render options through the queued render pipeline payload."""
+def test_render_threads_cli_flags_through_queued_pipeline(tmp_path, monkeypatch) -> None:
+    """Thread controller CLI flags through the queued render pipeline payload."""
     scenes_dir = tmp_path / "layersense_scenes"
     artifacts_dir = tmp_path / "artifacts"
     scenes_dir.mkdir()
@@ -202,7 +200,7 @@ def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeyp
     scene_path.write_text(
         "from manim import Scene\n\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass\n"
     )
-    content_hash = _request_hash(scene_path, background_color="#112233")
+    content_hash = _request_hash(scene_path, {"quality": "m", "renderer": "cairo"})
 
     queued_jobs: list[dict[str, str]] = []
     enqueued_jobs: list[dict[str, object]] = []
@@ -235,7 +233,7 @@ def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeyp
         json={
             "scene_path": str(scene_path),
             "conversation_id": "conversation-1",
-            "render_options": {"background_color": "#112233"},
+            "cli_flags": {"quality": "m", "renderer": "cairo"},
         },
     )
 
@@ -243,7 +241,8 @@ def test_render_threads_render_options_through_queued_pipeline(tmp_path, monkeyp
     assert response.json()["job"]["status"] == "queued"
     assert queued_jobs == [{"job_id": "job-1", "conversation_id": "conversation-1"}]
     assert enqueued_jobs[0]["content_hash"] == content_hash
-    assert enqueued_jobs[0]["render_options"].background_color == "#112233"
+    assert enqueued_jobs[0]["cli_flags"].quality == "m"
+    assert enqueued_jobs[0]["cli_flags"].renderer == "cairo"
 
 
 def test_render_returns_job_snapshot_for_cached_scene(tmp_path, monkeypatch) -> None:
@@ -397,9 +396,9 @@ def test_render_skips_cached_fast_path_when_index_points_to_missing_files(
             "scene_path": str(scene_path),
             "content_hash": content_hash,
             "conversation_id": "conv-1",
-            "render_options": RenderRequest.model_validate(
+            "cli_flags": RenderRequest.model_validate(
                 {"scene_path": str(scene_path), "conversation_id": "conv-1"}
-            ).render_options,
+            ).cli_flags,
         }
     ]
 
@@ -807,7 +806,7 @@ def test_render_treats_non_generated_scene_with_index_entry_as_uncached(
         "scene_path": str(scene_path),
         "content_hash": content_hash,
         "conversation_id": "conv-manual-scene",
-        "render_options": RenderRequest.model_validate(
+        "cli_flags": RenderRequest.model_validate(
             {"scene_path": str(scene_path), "conversation_id": "conv-manual-scene"}
-        ).render_options,
+        ).cli_flags,
     }

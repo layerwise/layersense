@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 from layersense_controller.render import (
+    CLIFlags,
     RenderError,
     _config_file_path,
     _raw_output_path,
     render_final,
     render_preview,
 )
-from layersense_domain.models import RenderOptions
 
 pytestmark = [pytest.mark.unit, pytest.mark.ai]
 
@@ -82,8 +82,8 @@ async def test_render_preview_uses_preview_config_and_nested_output_file_for_pro
 
 
 @pytest.mark.asyncio
-async def test_render_preview_passes_background_override_to_manim(tmp_path, monkeypatch):
-    """Pass explicit background overrides through to the Manim subprocess."""
+async def test_render_preview_passes_quality_and_renderer_flags(tmp_path, monkeypatch):
+    """Pass supported controller CLI flags through to the Manim subprocess."""
     scene_path = tmp_path / "layersense_scenes" / "demo_project" / "scene.py"
     scene_path.parent.mkdir(parents=True)
     scene_path.write_text("print('x')\n")
@@ -114,11 +114,13 @@ async def test_render_preview_passes_background_override_to_manim(tmp_path, monk
         fake_create_subprocess_exec,
     )
 
-    await render_preview(scene_path, "abc123", RenderOptions(background_color="#ffffff"))
+    await render_preview(scene_path, "abc123", CLIFlags(quality="m", renderer="cairo"))
 
     assert captured_args is not None
-    assert "--background_color" in captured_args
-    assert "#ffffff" in captured_args
+    assert "-q" in captured_args
+    assert "m" in captured_args
+    assert "--renderer" in captured_args
+    assert "cairo" in captured_args
 
 
 @pytest.mark.asyncio

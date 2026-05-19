@@ -32,7 +32,7 @@ SCENE_PAYLOAD = {
 
 
 def test_create_animation_returns_background_color_render_options(tmp_path: Path) -> None:
-    """Return explicit render options derived from the scene app state."""
+    """Persist explicit background color in the generated scene source."""
     with patch("layersense_agent.api.v1.endpoints.animate_scene.LAYERSENSE_SCENES_DIR", tmp_path):
         with TestClient(app) as client:
             response = client.post(
@@ -44,7 +44,7 @@ def test_create_animation_returns_background_color_render_options(tmp_path: Path
             )
 
     assert response.status_code == 200
-    assert response.json()["render_options"] == {"background_color": "#334455"}
+    assert 'config.background_color = "#334455"' in Path(response.json()["scene_path"]).read_text()
 
 
 def test_create_animation_records_live_model_response(tmp_path: Path) -> None:

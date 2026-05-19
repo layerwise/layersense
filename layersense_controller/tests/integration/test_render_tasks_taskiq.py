@@ -8,10 +8,10 @@ pytestmark = [pytest.mark.integration, pytest.mark.ai]
 
 
 @pytest.mark.asyncio
-async def test_run_render_job_kiq_executes_pipeline_and_deserializes_render_options(
+async def test_run_render_job_kiq_executes_pipeline_and_deserializes_cli_flags(
     monkeypatch, tmp_path
 ) -> None:
-    """Execute the render task through Taskiq and deserialize render options."""
+    """Execute the render task through Taskiq and deserialize controller CLI flags."""
     broker = InMemoryBroker(await_inplace=True)
 
     import layersense_controller.broker as broker_module
@@ -31,15 +31,15 @@ async def test_run_render_job_kiq_executes_pipeline_and_deserializes_render_opti
     final_path.parent.mkdir(parents=True, exist_ok=True)
 
     transitions = []
-    seen_render_options = []
+    seen_cli_flags = []
 
-    async def fake_render_preview(_scene_path, _content_hash, render_options=None):
-        seen_render_options.append(render_options)
+    async def fake_render_preview(_scene_path, _content_hash, cli_flags=None):
+        seen_cli_flags.append(cli_flags)
         preview_path.write_bytes(b"preview")
         return preview_path
 
-    async def fake_render_final(_scene_path, _content_hash, render_options=None):
-        seen_render_options.append(render_options)
+    async def fake_render_final(_scene_path, _content_hash, cli_flags=None):
+        seen_cli_flags.append(cli_flags)
         final_path.write_bytes(b"final")
         return final_path
 
@@ -63,13 +63,14 @@ async def test_run_render_job_kiq_executes_pipeline_and_deserializes_render_opti
             scene_path=str(scene_path),
             content_hash="hash-1",
             conversation_id="conv-1",
-            render_options={"background_color": "#112233"},
+            cli_flags={"quality": "m", "renderer": "cairo"},
         )
         await task.wait_result(timeout=2)
     finally:
         await broker.shutdown()
 
-    assert seen_render_options[0].background_color == "#112233"
+    assert seen_cli_flags[0].quality == "m"
+    assert seen_cli_flags[0].renderer == "cairo"
     assert transitions == [
         ("preview_rendering", {}),
         ("waiting_for_final", {"preview_url": "/artifacts/by-hash/hash-1/preview"}),
@@ -105,7 +106,7 @@ async def test_run_render_job_kiq_marks_failed_when_rendering_raises(
 
     transitions = []
 
-    async def fake_render_preview(_scene_path, _content_hash, render_options=None):
+    async def fake_render_preview(_scene_path, _content_hash, cli_flags=None):
         raise RenderError("manim exited with code 1", "stderr text")
 
     async def fake_update_job(self, job_id: str, status: str, **changes):
@@ -126,7 +127,7 @@ async def test_run_render_job_kiq_marks_failed_when_rendering_raises(
             scene_path=str(scene_path),
             content_hash="hash-1",
             conversation_id="conv-1",
-            render_options={"background_color": "#112233"},
+            cli_flags={"quality": "m"},
         )
         await task.wait_result(timeout=2)
     finally:
@@ -161,11 +162,11 @@ async def test_run_render_job_kiq_preserves_preview_url_when_final_raises_unexpe
 
     transitions = []
 
-    async def fake_render_preview(_scene_path, _content_hash, render_options=None):
+    async def fake_render_preview(_scene_path, _content_hash, cli_flags=None):
         preview_path.write_bytes(b"preview")
         return preview_path
 
-    async def fake_render_final(_scene_path, _content_hash, render_options=None):
+    async def fake_render_final(_scene_path, _content_hash, cli_flags=None):
         raise RuntimeError("boom")
 
     async def fake_update_job(self, job_id: str, status: str, **changes):
@@ -188,7 +189,7 @@ async def test_run_render_job_kiq_preserves_preview_url_when_final_raises_unexpe
             scene_path=str(scene_path),
             content_hash="hash-1",
             conversation_id="conv-1",
-            render_options={"background_color": "#112233"},
+            cli_flags={"quality": "m"},
         )
         await task.wait_result(timeout=2)
     finally:
@@ -205,8 +206,8 @@ async def test_run_render_job_kiq_preserves_preview_url_when_final_raises_unexpe
 
 
 @pytest.mark.asyncio
-async def test_run_render_job_kiq_accepts_missing_render_options(monkeypatch, tmp_path) -> None:
-    """Allow Taskiq-dispatched render jobs with no render_options payload."""
+async def test_run_render_job_kiq_accepts_missing_cli_flags(monkeypatch, tmp_path) -> None:
+    """Allow Taskiq-dispatched render jobs with no cli_flags payload."""
     broker = InMemoryBroker(await_inplace=True)
 
     import layersense_controller.broker as broker_module
@@ -225,15 +226,15 @@ async def test_run_render_job_kiq_accepts_missing_render_options(monkeypatch, tm
     preview_path.parent.mkdir(parents=True, exist_ok=True)
     final_path.parent.mkdir(parents=True, exist_ok=True)
 
-    seen_render_options = []
+    seen_cli_flags = []
 
-    async def fake_render_preview(_scene_path, _content_hash, render_options=None):
-        seen_render_options.append(render_options)
+    async def fake_render_preview(_scene_path, _content_hash, cli_flags=None):
+        seen_cli_flags.append(cli_flags)
         preview_path.write_bytes(b"preview")
         return preview_path
 
-    async def fake_render_final(_scene_path, _content_hash, render_options=None):
-        seen_render_options.append(render_options)
+    async def fake_render_final(_scene_path, _content_hash, cli_flags=None):
+        seen_cli_flags.append(cli_flags)
         final_path.write_bytes(b"final")
         return final_path
 
@@ -256,10 +257,10 @@ async def test_run_render_job_kiq_accepts_missing_render_options(monkeypatch, tm
             scene_path=str(scene_path),
             content_hash="hash-1",
             conversation_id="conv-1",
-            render_options=None,
+            cli_flags=None,
         )
         await task.wait_result(timeout=2)
     finally:
         await broker.shutdown()
 
-    assert seen_render_options == [None, None]
+    assert seen_cli_flags == [None, None]
