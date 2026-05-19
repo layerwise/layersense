@@ -87,7 +87,7 @@ function App() {
       const renderResponse = await queueRender({
         scene_path: animation.scene_path,
         conversation_id: animation.conversation_id,
-        render_options: animation.render_options,
+        cli_flags: {},
       })
       setJobId(renderResponse.job_id)
       setInitialJob(renderResponse.job)

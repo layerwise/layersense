@@ -10,8 +10,8 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 ## Current Status
 
 - `layersense_frontend/` contains a stock-Excalidraw React app with prompt input, generate flow, and preview/final render UI.
-- `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload, normalizes it into a typed internal scene model, extracts allowlisted render options, and writes generated Manim scene files.
-- `layersense_controller/` queues render jobs, stores ephemeral job state in Redis, applies explicit per-request render options, runs Manim renders through a Taskiq worker, and serves cached artifacts over stable HTTP routes.
+- `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload, normalizes it into a typed internal scene model, and writes generated Manim scene files with source-level background configuration when needed.
+- `layersense_controller/` queues render jobs, stores ephemeral job state in Redis, applies explicit per-request CLI flags, runs Manim renders through a Taskiq worker, and serves cached artifacts over stable HTTP routes.
 - The full end-to-end workflow is partially implemented, and the repo now includes dedicated Python `e2e` tests for the live local stack, but real render reliability issues still remain before it should be treated as production-ready.
 
 ## Current Architecture
@@ -19,8 +19,8 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 The project currently targets a simple local-developer architecture:
 
 1. Browser frontend captures a structured Excalidraw `scene` snapshot and prompt.
-2. `layersense_agent` normalizes the Excalidraw payload into a typed internal scene model, extracts allowlisted render options such as Excalidraw background color, then generates Manim code and writes a scene file.
-3. Frontend explicitly queues a render with `layersense_controller`, including structured `render_options`, and receives a `job_id` plus initial job snapshot.
+2. `layersense_agent` normalizes the Excalidraw payload into a typed internal scene model and generates Manim code, embedding background configuration into the scene source when needed.
+3. Frontend explicitly queues a render with `layersense_controller`, including optional structured `cli_flags`, and receives a `job_id` plus initial job snapshot.
 4. Controller short-circuits cached hits or enqueues one Taskiq job for preview then final rendering.
 5. Frontend long-polls `GET /render-jobs/{job_id}` until preview/final artifacts are available.
 
@@ -28,7 +28,7 @@ The controller watcher code remains in the repo for future manual-edit rerender 
 
 Raw Manim scene renders now live under `./layersense_artifacts/scenes/<project-or-_root>/<preview|final>/...`.
 The preview/final Manim config defaults are packaged inside `layersense_controller` itself under `src/layersense_controller/resources/`, so local and Docker runs use the same installed config resources instead of repo-root config files.
-The controller now keeps a JSON cache index at `./layersense_artifacts/cache/index.json` and serves browser-facing artifacts through stable routes instead of duplicating top-level hash-named mp4 files. Artifact cache identity now includes both scene file content and normalized render options, so background-color overrides do not collide.
+The controller now keeps a JSON cache index at `./layersense_artifacts/cache/index.json` and serves browser-facing artifacts through stable routes instead of duplicating top-level hash-named mp4 files. Artifact cache identity now includes both scene file content and normalized controller CLI flags.
 
 ## Render Layout
 

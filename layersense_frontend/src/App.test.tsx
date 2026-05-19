@@ -76,7 +76,6 @@ describe('App', () => {
     resolveCreate!({
       conversation_id: 'conv-1',
       scene_path: '/tmp/scene.py',
-      render_options: { background_color: '#fff' },
     })
     await waitFor(() => expect(mockQueueRender).toHaveBeenCalledTimes(1))
     expect(button.disabled).toBe(true)
@@ -101,7 +100,6 @@ describe('App', () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
       scene_path: '/tmp/scene.py',
-      render_options: { background_color: '#fff' },
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
@@ -139,12 +137,10 @@ describe('App', () => {
       .mockResolvedValueOnce({
         conversation_id: 'conv-1',
         scene_path: '/tmp/scene-1.py',
-        render_options: { background_color: '#112233' },
       })
       .mockResolvedValueOnce({
         conversation_id: 'conv-2',
         scene_path: '/tmp/scene-2.py',
-        render_options: { background_color: '#445566' },
       })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
@@ -168,7 +164,7 @@ describe('App', () => {
       expect(mockQueueRender).toHaveBeenCalledWith({
         scene_path: '/tmp/scene-1.py',
         conversation_id: 'conv-1',
-        render_options: { background_color: '#112233' },
+        cli_flags: {},
       }),
     )
 
@@ -177,16 +173,15 @@ describe('App', () => {
       expect(mockQueueRender).toHaveBeenCalledWith({
         scene_path: '/tmp/scene-2.py',
         conversation_id: 'conv-2',
-        render_options: { background_color: '#445566' },
+        cli_flags: {},
       }),
     )
   })
 
-  it('forwards null background render options unchanged', async () => {
+  it('queues renders with empty controller cli flags by default', async () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-null-bg',
       scene_path: '/tmp/scene-null.py',
-      render_options: { background_color: null },
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-null-bg',
@@ -209,7 +204,7 @@ describe('App', () => {
       expect(mockQueueRender).toHaveBeenCalledWith({
         scene_path: '/tmp/scene-null.py',
         conversation_id: 'conv-null-bg',
-        render_options: { background_color: null },
+        cli_flags: {},
       }),
     )
   })
@@ -218,7 +213,6 @@ describe('App', () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
       scene_path: '/tmp/scene.py',
-      render_options: { background_color: '#fff' },
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
@@ -285,7 +279,6 @@ describe('App', () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
       scene_path: '/tmp/scene.py',
-      render_options: { background_color: '#fff' },
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
@@ -314,7 +307,6 @@ describe('App', () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
       scene_path: '/tmp/scene.py',
-      render_options: { background_color: '#fff' },
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',

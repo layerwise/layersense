@@ -154,8 +154,8 @@ def test_create_animation_rejects_scenes_with_only_deleted_elements(mock_client)
     mock_runner.run.assert_not_awaited()
 
 
-def test_create_animation_returns_background_color_render_options(mock_client) -> None:
-    """Return explicit render options derived from the scene app state."""
+def test_create_animation_persists_background_color_in_generated_scene_file(mock_client) -> None:
+    """Persist explicit background color in the generated scene source."""
     test_client, _runner, _scenes_dir = mock_client
 
     response = test_client.post(
@@ -167,7 +167,7 @@ def test_create_animation_returns_background_color_render_options(mock_client) -
     )
 
     assert response.status_code == 200
-    assert response.json()["render_options"] == {"background_color": "#334455"}
+    assert 'config.background_color = "#334455"' in Path(response.json()["scene_path"]).read_text()
 
 
 def test_create_animation_rejects_unsupported_scene_elements(mock_client) -> None:

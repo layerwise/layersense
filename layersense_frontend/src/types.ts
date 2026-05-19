@@ -16,17 +16,20 @@ export type AnimationRequest = {
 export type AnimationResponse = {
   conversation_id: string
   scene_path: string
-  render_options: RenderOptions
 }
 
-export type RenderOptions = {
-  background_color: string | null
+export type CLIFlags = {
+  quality?: 'l' | 'm' | 'h' | 'p' | 'k'
+  resolution?: string
+  frame_rate?: number
+  renderer?: 'cairo' | 'opengl'
+  from_animation_number?: string
 }
 
 export type RenderQueueRequest = {
   scene_path: string
   conversation_id: string
-  render_options: RenderOptions
+  cli_flags?: CLIFlags
 }
 
 export type RenderJobStatus =

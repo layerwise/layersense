@@ -57,7 +57,7 @@ def test_render_returns_cached_completed_job_snapshot(tmp_path, monkeypatch) -> 
 
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hash_render_request(scene_path, {"background_color": None})
+    content_hash = hash_render_request(scene_path, {})
 
     preview = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
     final = artifacts_dir / "scenes" / "_root" / "final" / "demo_scene_final.mp4"
@@ -158,18 +158,18 @@ def test_render_enqueues_expected_taskiq_payload(tmp_path, monkeypatch) -> None:
             json={
                 "scene_path": str(scene_path),
                 "conversation_id": "conversation-1",
-                "render_options": {"background_color": "#112233"},
+                "cli_flags": {"quality": "m", "renderer": "cairo"},
             },
         )
 
-    expected_hash = hash_render_request(scene_path, {"background_color": "#112233"})
+    expected_hash = hash_render_request(scene_path, {"quality": "m", "renderer": "cairo"})
     assert response.status_code == 200
     kiq_mock.assert_awaited_once_with(
         job_id="job-1",
         scene_path=str(scene_path),
         content_hash=expected_hash,
         conversation_id="conversation-1",
-        render_options={"background_color": "#112233"},
+        cli_flags={"quality": "m", "renderer": "cairo"},
     )
 
 
@@ -333,7 +333,7 @@ def test_render_generated_scene_reuses_cached_hash_and_remaps_scene_uuid(
 
     scene_path = scenes_dir / "generated_new-uuid.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hash_render_request(scene_path, {"background_color": None})
+    content_hash = hash_render_request(scene_path, {})
 
     preview = artifacts_dir / "scenes" / "_root" / "preview" / "demo_preview.mp4"
     final = artifacts_dir / "scenes" / "_root" / "final" / "demo_final.mp4"
@@ -405,7 +405,7 @@ def test_render_queues_when_cached_final_is_missing(tmp_path, monkeypatch) -> No
 
     scene_path = scenes_dir / "demo_scene.py"
     scene_path.write_text("print('demo')\n")
-    content_hash = hash_render_request(scene_path, {"background_color": None})
+    content_hash = hash_render_request(scene_path, {})
 
     preview = artifacts_dir / "scenes" / "_root" / "preview" / "demo_scene_preview.mp4"
     preview.parent.mkdir(parents=True, exist_ok=True)

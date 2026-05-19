@@ -68,6 +68,27 @@ def test_create_animation_writes_file(client):
     assert_animation_created(response.json())
 
 
+def test_create_animation_injects_background_color_into_written_scene_file(client):
+    """Persist background color in the generated scene source when the canvas declares one."""
+    c, _, _ = client
+    payload = {
+        "prompt": "animate a circle",
+        "scene": {
+            **SCENE_PAYLOAD,
+            "appState": {"viewBackgroundColor": "#334455"},
+        },
+    }
+
+    response = c.post("/api/v1/animation", json=payload)
+
+    assert response.status_code == 200
+    scene_path = assert_animation_created(response.json())
+    assert (
+        scene_path.read_text()
+        == 'from manim import config\nconfig.background_color = "#334455"\n\n' + FAKE_CODE
+    )
+
+
 def test_create_animation_writes_file_from_scene_payload(client):
     """Append the normalized scene payload to the model prompt."""
     c, tmp_path, mock_runner = client
@@ -78,10 +99,7 @@ def test_create_animation_writes_file_from_scene_payload(client):
     runner_prompt = mock_runner.run.await_args.args[1]
     prompt_prefix, serialized_scene = runner_prompt.split("\n", maxsplit=1)
     assert prompt_prefix == "animate a circle"
-    assert json.loads(serialized_scene) == {
-        **normalize_scene(SCENE_PAYLOAD).model_dump(),
-        "appState": {},
-    }
+    assert json.loads(serialized_scene) == normalize_scene(SCENE_PAYLOAD).model_dump()
 
 
 def test_create_animation_normalizes_scene_before_generation(client):
@@ -102,15 +120,13 @@ def test_create_animation_normalizes_scene_before_generation(client):
     assert response.status_code == 200
     assert_animation_created(response.json())
     normalize_mock.assert_called_once_with(payload["scene"])
-    normalize_mock.return_value.model_dump_json.assert_called_once_with(
-        exclude={"appState": {"viewBackgroundColor"}}
-    )
+    normalize_mock.return_value.model_dump_json.assert_called_once_with()
     runner_prompt = mock_runner.run.await_args.args[1]
     assert '{"elements":[],"appState":{},"files":{}}' in runner_prompt
 
 
-def test_create_animation_excludes_bypassed_background_color_from_generation_prompt(client):
-    """Exclude explicit render colors from the generated scene prompt payload."""
+def test_create_animation_includes_background_color_in_generation_prompt(client):
+    """Include the canvas background color in the generated scene prompt payload."""
     c, _, mock_runner = client
     payload = {
         "prompt": "animate a circle",
@@ -125,14 +141,11 @@ def test_create_animation_excludes_bypassed_background_color_from_generation_pro
     assert response.status_code == 200
     runner_prompt = mock_runner.run.await_args.args[1]
     _, serialized_scene = runner_prompt.split("\n", maxsplit=1)
-    assert json.loads(serialized_scene) == {
-        **normalize_scene(payload["scene"]).model_dump(),
-        "appState": {},
-    }
+    assert json.loads(serialized_scene) == normalize_scene(payload["scene"]).model_dump()
 
 
-def test_create_animation_returns_render_options(client):
-    """Return render options derived from the normalized Excalidraw scene."""
+def test_create_animation_does_not_return_render_options(client):
+    """Keep controller-specific render settings out of the animation response."""
     c, _, _ = client
     payload = {
         "prompt": "animate a circle",
@@ -145,7 +158,7 @@ def test_create_animation_returns_render_options(client):
     response = c.post("/api/v1/animation", json=payload)
 
     assert response.status_code == 200
-    assert response.json()["render_options"] == {"background_color": "#334455"}
+    assert "render_options" not in response.json()
 
 
 def test_create_animation_rejects_effectively_empty_scene(client):

@@ -23,11 +23,11 @@ async def test_run_render_pipeline_updates_preview_then_final(monkeypatch, tmp_p
 
     transitions: list[tuple[str, dict[str, str | None]]] = []
 
-    async def fake_render_preview(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_preview(_scene_path, _content_hash, _cli_flags=None):
         preview_path.write_bytes(b"preview")
         return preview_path
 
-    async def fake_render_final(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_final(_scene_path, _content_hash, _cli_flags=None):
         final_path.write_bytes(b"final")
         return final_path
 
@@ -78,7 +78,7 @@ async def test_run_render_pipeline_marks_failed_on_render_error(monkeypatch, tmp
 
     transitions: list[tuple[str, dict[str, str | None]]] = []
 
-    async def fake_render_preview(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_preview(_scene_path, _content_hash, _cli_flags=None):
         raise RenderError("manim exited with code 1", "stderr text")
 
     async def fake_update_job(self, job_id: str, status: str, **changes: str | None):
@@ -121,11 +121,11 @@ async def test_run_render_pipeline_preserves_preview_before_final_completion(
 
     transitions: list[tuple[str, dict[str, str | None]]] = []
 
-    async def fake_render_preview(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_preview(_scene_path, _content_hash, _cli_flags=None):
         preview_path.write_bytes(b"preview")
         return preview_path
 
-    async def fake_render_final(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_final(_scene_path, _content_hash, _cli_flags=None):
         final_path.write_bytes(b"final")
         return final_path
 
@@ -173,11 +173,11 @@ async def test_run_render_pipeline_preserves_preview_url_when_final_fails(
 
     transitions: list[tuple[str, dict[str, str | None]]] = []
 
-    async def fake_render_preview(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_preview(_scene_path, _content_hash, _cli_flags=None):
         preview_path.write_bytes(b"preview")
         return preview_path
 
-    async def fake_render_final(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_final(_scene_path, _content_hash, _cli_flags=None):
         raise RenderError("manim exited with code 2", "final stderr")
 
     async def fake_update_job(self, job_id: str, status: str, **changes: str | None):
@@ -231,11 +231,11 @@ async def test_run_render_pipeline_renders_non_generated_scene_when_hash_match_b
 
     store_calls: list[dict[str, str | None]] = []
 
-    async def fake_render_preview(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_preview(_scene_path, _content_hash, _cli_flags=None):
         preview_path.write_bytes(b"preview")
         return preview_path
 
-    async def fake_render_final(_scene_path, _content_hash, _render_options=None):
+    async def fake_render_final(_scene_path, _content_hash, _cli_flags=None):
         final_path.write_bytes(b"final")
         return final_path
 

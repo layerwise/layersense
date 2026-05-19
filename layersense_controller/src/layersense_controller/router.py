@@ -4,7 +4,6 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
-from layersense_domain.models import RenderOptions
 from pydantic import BaseModel, Field
 
 from layersense_controller.broker import get_job_store
@@ -15,7 +14,7 @@ from layersense_controller.cache import (
     store_cached_artifacts,
 )
 from layersense_controller.config import settings
-from layersense_controller.render import RenderError, _scene_path_relative_to_scenes_dir
+from layersense_controller.render import CLIFlags, RenderError, _scene_path_relative_to_scenes_dir
 from layersense_controller.render_jobs import RenderJobSnapshot
 from layersense_controller.render_runtime import (
     artifact_url_by_hash,
@@ -29,7 +28,7 @@ router = APIRouter()
 class RenderRequest(BaseModel):
     scene_path: str
     conversation_id: str
-    render_options: RenderOptions = Field(default_factory=RenderOptions)
+    cli_flags: CLIFlags = Field(default_factory=CLIFlags)
 
 
 class RenderQueueResponse(BaseModel):
@@ -47,7 +46,7 @@ async def enqueue_render_job(
     scene_path: str,
     content_hash: str,
     conversation_id: str,
-    render_options: RenderOptions,
+    cli_flags: CLIFlags,
 ) -> None:
     from layersense_controller.render_tasks import run_render_job
 
@@ -56,12 +55,12 @@ async def enqueue_render_job(
         scene_path=scene_path,
         content_hash=content_hash,
         conversation_id=conversation_id,
-        render_options=request_render_options_payload(render_options),
+        cli_flags=request_cli_flags_payload(cli_flags),
     )
 
 
-def request_render_options_payload(render_options: RenderOptions) -> dict[str, str | None]:
-    return render_options.model_dump(mode="json", exclude_none=False)
+def request_cli_flags_payload(cli_flags: CLIFlags) -> dict[str, object]:
+    return cli_flags.model_dump(mode="json", exclude_none=True)
 
 
 def _scene_artifact_path(relative_path: str) -> Path:
@@ -144,8 +143,8 @@ async def render(request: RenderRequest) -> RenderQueueResponse:
     except RenderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    render_options_payload = request_render_options_payload(request.render_options)
-    content_hash = hash_render_request(scene_path, render_options_payload)
+    cli_flags_payload = request_cli_flags_payload(request.cli_flags)
+    content_hash = hash_render_request(scene_path, cli_flags_payload)
     cached = lookup_cached_artifacts(content_hash)
     scene_uuid = scene_uuid_from_scene_path(scene_path)
     job_id = create_job_id()
@@ -180,7 +179,7 @@ async def render(request: RenderRequest) -> RenderQueueResponse:
         scene_path=str(scene_path),
         content_hash=content_hash,
         conversation_id=request.conversation_id,
-        render_options=request.render_options,
+        cli_flags=request.cli_flags,
     )
     return RenderQueueResponse(job_id=job_id, job=job)
 

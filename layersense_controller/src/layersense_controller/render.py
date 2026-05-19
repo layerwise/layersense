@@ -1,13 +1,22 @@
 import asyncio
 from importlib.resources import as_file, files
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from layersense_domain.models import RenderOptions
+from pydantic import BaseModel, Field, StringConstraints
 
 from layersense_controller.config import settings
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
+Resolution = Annotated[str, StringConstraints(pattern=r"^\d+,\d+$")]
+
+
+class CLIFlags(BaseModel):
+    quality: Literal["l", "m", "h", "p", "k"] | None = None
+    resolution: Resolution | None = None
+    frame_rate: float | None = Field(default=None, gt=0)
+    renderer: Literal["cairo", "opengl"] | None = None
+    from_animation_number: str | None = None
 
 
 class RenderError(Exception):
@@ -70,15 +79,30 @@ def _media_dir_path() -> Path:
     return settings.artifacts_dir / "scenes"
 
 
+def _cli_args(cli_flags: CLIFlags | None) -> list[str]:
+    if cli_flags is None:
+        return []
+
+    args: list[str] = []
+    if cli_flags.quality is not None:
+        args.extend(["-q", cli_flags.quality])
+    if cli_flags.resolution is not None:
+        args.extend(["-r", cli_flags.resolution])
+    if cli_flags.frame_rate is not None:
+        args.extend(["--fps", str(cli_flags.frame_rate)])
+    if cli_flags.renderer is not None:
+        args.extend(["--renderer", cli_flags.renderer])
+    if cli_flags.from_animation_number is not None:
+        args.extend(["-n", cli_flags.from_animation_number])
+    return args
+
+
 async def _run_manim(
-    scene_path: Path, render_kind: str, render_options: RenderOptions | None = None
+    scene_path: Path, render_kind: str, cli_flags: CLIFlags | None = None
 ) -> Path:
     raw_output_path = _raw_output_path(scene_path, render_kind)
     output_file_path = _output_file_path(scene_path, render_kind)
     media_dir_path = _media_dir_path()
-    extra_args: list[str] = []
-    if render_options and render_options.background_color:
-        extra_args.extend(["--background_color", render_options.background_color])
     raw_output_path.parent.mkdir(parents=True, exist_ok=True)
     raw_output_path.unlink(missing_ok=True)
 
@@ -89,7 +113,7 @@ async def _run_manim(
                 "render",
                 "--config_file",
                 str(config_path),
-                *extra_args,
+                *_cli_args(cli_flags),
                 "--media_dir",
                 str(media_dir_path),
                 "--format=mp4",
@@ -115,12 +139,12 @@ async def _run_manim(
 
 
 async def render_preview(
-    scene_path: Path, content_hash: str, render_options: RenderOptions | None = None
+    scene_path: Path, content_hash: str, cli_flags: CLIFlags | None = None
 ) -> Path:
-    return await _run_manim(scene_path, "preview", render_options)
+    return await _run_manim(scene_path, "preview", cli_flags)
 
 
 async def render_final(
-    scene_path: Path, content_hash: str, render_options: RenderOptions | None = None
+    scene_path: Path, content_hash: str, cli_flags: CLIFlags | None = None
 ) -> Path:
-    return await _run_manim(scene_path, "final", render_options)
+    return await _run_manim(scene_path, "final", cli_flags)
