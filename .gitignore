@@ -14,6 +14,7 @@ layersense_scenes/generated_scenes/
 
 # VSCode
 .vscode
+.omo
 
 # data folders
 assets/ui_screenshots
