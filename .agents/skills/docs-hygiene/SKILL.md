@@ -1,6 +1,6 @@
 ---
 name: docs-hygiene
-description: Use when auditing repository documentation for stale paths, outdated architecture claims, invalid startup instructions, or plan drift, especially before handoff, release, onboarding improvements, or after major implementation changes.
+description: Use only on explicit user request to audit repository documentation for stale paths, outdated architecture claims, invalid startup instructions, or plan drift.
 ---
 
 # Docs Hygiene
