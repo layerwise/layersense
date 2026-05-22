@@ -166,17 +166,18 @@ POST   /api/v1/scenes/{scene_id}/generate      body: { cli_flags? }
 3. Browser: GET /render-jobs/{render_id} (long-poll, existing endpoint)
 4. Taskiq worker (single task per C2a):
      a. Load Render + Scene + Frames in one read transaction
-     b. Build agent payload: { prompt, excalidraw_scene_json, frames: [...] }
-     c. POST {agent_base_url}/api/v1/animation → { source_code, content_hash }
-        - on agent error: Render.status="failed", Render.error_message=..., publish event, return
-     d. Compute effective_hash = sha256(content_hash + canonical_cli_flags_json)
-     e. RendersRepository.find_by_content_hash(effective_hash):
-          - hit + blobs exist → reuse: copy preview/final/source keys to this Render row,
-            status="final_ready", scene.current_render_id=render_id, publish event, return
-          - miss or drift → continue
-     f. ObjectStore.put(render_source_key(effective_hash), source_code.encode())
-        Set Render.scene_py_artifact_key=..., status="queued"
-     g. Acquire layersense:lock:render:{effective_hash} (Step 1's primitive)
+      b. Build agent payload: { prompt, excalidraw_scene_json, frames: [...] }
+      c. POST {agent_base_url}/api/v1/animation → { source_code, content_hash }
+         - on agent error: Render.status="failed", Render.error_message=..., publish event, return
+      d. Compute canonical content_hash = sha256(source_bytes + canonical(cli_flags_json))
+         Single canonical hash: `content_hash = sha256(source_bytes + canonical(cli_flags_json))`.
+      e. RendersRepository.find_by_content_hash(content_hash):
+           - hit + blobs exist → reuse: copy preview/final/source keys to this Render row,
+             status="final_ready", scene.current_render_id=render_id, publish event, return
+           - miss or drift → continue
+      f. ObjectStore.put(render_source_key(content_hash), source_code.encode())
+         Set Render.scene_py_artifact_key=..., status="queued"
+      g. Acquire layersense:lock:render:{content_hash} (Step 1's primitive)
      h. Materialize source to /tmp/layersense-renders/{render_id}/scene.py
      i. Run Manim preview → ObjectStore.put_stream(render_preview_key)
         Render.preview_artifact_key=..., status="preview_ready", publish event
@@ -522,10 +523,10 @@ For each of `test_projects_api.py`, `test_scenes_api.py`, `test_frames_api.py`:
 For `test_generate_api.py`:
 
 - Happy path with `respx`-mocked agent: returns `render_id` immediately; long-poll progresses `generating → queued → preview_ready → final_ready`; final blobs exist in the test object store.
-- Cache-hit path: a previous Render with the same effective hash exists; agent **is not called** (verified via `respx`); status goes straight to `final_ready`.
+- Cache-hit path for `POST /api/v1/scenes/{id}/generate`: For /generate: the worker ALWAYS calls the agent first. Cache hit is checked AFTER agent returns — if content_hash matches existing artifacts, skip Manim render and copy keys. Agent call is never skipped for /generate. Cache-hit-skips-agent only applies to POST /render.
 - Agent-failure path: mocked agent returns 500; Render.status becomes `failed` with `error_message` populated; long-poll resolves with `failed`.
 - Agent-timeout path: mocked agent hangs; AgentClient times out; Render.status becomes `failed`.
-- Concurrent generates for the same scene-with-identical-effective-hash: deduped by `layersense:lock:render:{hash}`; only one Manim invocation.
+- Concurrent generates for the same scene-with-identical-`content_hash`: deduped by `layersense:lock:render:{hash}`; only one Manim invocation.
 
 For `test_agent_client.py` (unit):
 
@@ -632,5 +633,7 @@ Total: ~3800 LOC delta. Three-PR split recommended.
 12. `RenderJobSnapshot` hard cutover with no dual-shape support. Single-user dev; full-page reload after deploy is the migration path.
 13. Status vocabulary unifies to the backend `Render.status` enum across the wire. Frontend's UX-shaped `VideoPlayerStatus` enum is deleted; `VideoPlayer` consumes the backend enum directly and owns its own label mapping.
 14. `Canvas` keeps its imperative `forwardRef<CanvasHandle>` shape; new `initialScene` + `onChange` props are additive. Generate uses the imperative handle; autosave uses `onChange`.
+
+**Amendment (2026-05-22):** Cache-hit ordering corrected: agent always called for /generate; cache hit is post-agent. Hash terminology unified to single content_hash. Per audit findings 4.1, 4.2.
 
 → Correct any of these or I proceed to Step 5 (agent refinement endpoint with `parent_render_id` chaining + structured frame-aware prompt construction). Step 5 is where the agent stops being one-shot — the controller calls the agent with the previous Render's source as additional context, and the agent's prompt-composition logic upgrades to use the structured `frames` field meaningfully.

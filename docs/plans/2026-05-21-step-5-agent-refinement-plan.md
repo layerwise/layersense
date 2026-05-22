@@ -1,6 +1,7 @@
 # Agent Refinement (Tier 1) — Implementation Plan
 
 **Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Canonical source-key form: `renders/{content_hash}/source.py`. Migration number is `0004` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006).
+**Amendment (2026-05-22):** Render.refinement_prompt confirmed canonical (overview amended). Cache-hit ordering corrected: agent always called for /refine. Hash terminology unified. Response field normalized to scene_py_bytes. Per audit findings 5.1-5.3.
 **Step in build order:** 5 of 9
 **Depends on:** Step 4 (`POST /api/v1/scenes/{id}/generate`, controller-as-orchestrator, `parent_render_id` column in `Render`) merged
 **Unblocks:** Step 6 (project export), Step 7 (multi-file project + agent Tier 2)
@@ -84,6 +85,8 @@ The alternative (freeze the Excalidraw state to the previous render's snapshot) 
 
 The `content_hash` is computed from the generated source bytes (as in Step 3/4). A refinement that produces identical source to a previous render (unlikely but possible) will hit the cache and reuse blobs. A refinement with different inputs will produce a different hash and render fresh. No special refinement-aware cache key is needed.
 
+For `/refine`: the worker ALWAYS calls the agent (with parent render context). Cache hit is checked AFTER agent returns — if `content_hash` matches an existing Render with artifacts, skip Manim render and copy keys.
+
 The `parent_render_id` is metadata for the UI lineage display, not a cache key.
 
 #### 4. Frontend UX
@@ -146,15 +149,16 @@ POST /api/v1/scenes/{scene_id}/refine
           previous_prompt: <recovered>,
           refinement_prompt: render.refinement_prompt  (new column — see Schema deltas)
         }
-     f. POST {agent_base_url}/api/v1/animation → { source_code, content_hash }
-        - on agent error: Render.status="failed", error_message=..., publish event, return
-     g. Compute effective_hash = sha256(content_hash + canonical_cli_flags_json)
-     h. RendersRepository.find_by_content_hash(effective_hash):
-          - hit + blobs exist → reuse: copy keys, status="final_ready", scene.current_render_id=render_id, publish, return
-          - miss or drift → continue
-     i. ObjectStore.put(render_source_key(effective_hash), source_code.encode())
-        Set Render.scene_py_artifact_key=..., status="queued"
-     j. Acquire layersense:lock:render:{effective_hash}
+      f. POST {agent_base_url}/api/v1/animation → { scene_py_bytes, content_hash }
+         - on agent error: Render.status="failed", error_message=..., publish event, return
+      g. Compute/verify content_hash = sha256(scene_py_bytes + canonical(cli_flags_json)).
+         Single canonical hash: `content_hash = sha256(source_bytes + canonical(cli_flags_json))`. No separate effective_hash.
+      h. RendersRepository.find_by_content_hash(content_hash):
+           - hit + blobs exist → reuse: copy keys, status="final_ready", scene.current_render_id=render_id, publish, return
+           - miss or drift → continue
+      i. ObjectStore.put(render_source_key(content_hash), scene_py_bytes)
+         Set Render.scene_py_artifact_key=..., status="queued"
+      j. Acquire layersense:lock:render:{content_hash}
      k. Materialize source to /tmp/layersense-renders/{render_id}/scene.py
      l. Run Manim preview → ObjectStore.put_stream(render_preview_key)
         Render.preview_artifact_key=..., status="preview_ready", publish event
@@ -181,6 +185,8 @@ ALTER TABLE render ADD COLUMN refinement_prompt TEXT;
 
 Migration: `0004_add_render_refinement_prompt.py`.
 
+This column is now canonical — added to overview schema (amendment 2026-05-22).
+
 `parent_render_id` already exists in the Step 2 schema (`FK Render NULL (SET NULL)`). No change needed.
 
 No other schema changes.
@@ -202,7 +208,7 @@ class AnimationRequest(BaseModel):
     refinement_prompt: str | None = None
 ```
 
-Response schema is unchanged: `{ source_code: str, content_hash: str }`.
+Response schema is unchanged in shape but normalized to overview naming: `{ scene_py_bytes: bytes, content_hash: str }`.
 
 **Agent prompt-construction logic (upgraded in this step):**
 
@@ -370,7 +376,7 @@ Nothing deleted in this step.
 - **404 on unknown scene**: assert 404.
 - **Empty refinement_prompt**: assert 422 validation error.
 - **Agent failure on refinement**: mocked agent returns 500. Assert `Render.status = "failed"`, `error_message` populated, `scene.current_render_id` unchanged (still points at previous render).
-- **Cache hit on refinement**: mock agent returns source identical to a previous render's source. Assert no Manim invocation; status goes straight to `final_ready`; `parent_render_id` still set on the new Render row.
+- **Cache hit on refinement**: mock agent returns source identical to a previous render's source. For `/refine`: the worker ALWAYS calls the agent (with parent render context). Cache hit is checked AFTER agent returns — if `content_hash` matches an existing Render with artifacts, skip Manim render and copy keys. Assert no Manim invocation; status goes straight to `final_ready`; `parent_render_id` still set on the new Render row.
 - **Refinement of a refinement (chain depth 2)**: generate → refine → refine again. Assert `parent_render_id` on the third render points at the second. Assert `scene.current_render_id` = third render.
 - **Render-job long-poll response includes `parent_render_id` and `parent_content_hash`**: after a refinement render completes, `GET /render-jobs/{render_id}` returns both fields non-null.
 
@@ -394,7 +400,7 @@ Nothing deleted in this step.
 
 **`test_animation_api.py` (VCR-backed, extend):**
 
-- New cassette: refinement path with a real previous source and a short refinement prompt. Assert `source_code` in response is non-empty and `content_hash` matches `sha256(source_code.encode()).hexdigest()`.
+- New cassette: refinement path with a real previous source and a short refinement prompt. Assert `scene_py_bytes` in response is non-empty and `content_hash` matches `sha256(scene_py_bytes + canonical(cli_flags_json))`.
 - Cassette refresh required for the frames-aware prompt upgrade (prompt structure changed).
 
 **Markers:** `integration` for all agent tests; `ai` for the VCR-backed cassette tests.

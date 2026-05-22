@@ -138,6 +138,7 @@ projects/{project_id}/assets/{asset_id}/{filename}  # reserved for Step 7 (compo
 
 - **Everything for a render lives under one `renders/{content_hash}/` prefix.** Source, preview, final, log. Trivially deletable as a unit. Trivially exportable as a unit (Step 6).
 - **Renders keyed by `content_hash`, not `render_id`.** Two `Render` rows with identical `content_hash` (e.g., refinement that converged on the same code) point at the same blobs. This is the cache: free deduplication at the storage layer.
+- **Per canonical definition:** `content_hash = sha256(source_bytes + canonical(cli_flags_json))`. Single hash; no separate `effective_hash`.
 - **No `_root` / `generated_scenes` legacy directories.** Those were artifacts of a pre-Project world and disappear with `cache.py`.
 
 `keys.py` exposes pure helpers: `render_source_key(content_hash)`, `render_preview_key(content_hash)`, `render_final_key(content_hash)`, `render_log_key(content_hash)`. Callers never hand-format keys.
@@ -242,35 +243,41 @@ PR 3b wires `RenewableLock` (introduced in Step 1) around the worker entrypoint:
 
 ```python
 # inside the Taskiq render task body, pseudo-code
-lock_key = f"layersense:lock:render:{effective_hash}"
+from layersense_controller.locks import (
+    RENDER_LOCK_ACQUIRE_TIMEOUT_MS,
+    RENDER_LOCK_HEARTBEAT_INTERVAL_MS,
+    RENDER_LOCK_TTL_MS,
+)
+
+lock_key = f"layersense:lock:render:{content_hash}"
 async with RenewableLock(
     redis,
     key=lock_key,
-    ttl_ms=settings.render_lock_ttl_ms,                # 30_000
-    heartbeat_interval_ms=settings.render_lock_heartbeat_interval_ms,  # 10_000
-    acquire_timeout_ms=settings.render_lock_acquire_timeout_ms,        # 5_000
+    ttl_ms=RENDER_LOCK_TTL_MS,
+    heartbeat_interval_ms=RENDER_LOCK_HEARTBEAT_INTERVAL_MS,
+    acquire_timeout_ms=RENDER_LOCK_ACQUIRE_TIMEOUT_MS,
 ) as lock:
     # heartbeat task is now extending TTL every 10s
     materialize_scene_source_for_manim(...)
     run_manim_preview(...)
-    object_store.put_stream(render_preview_key(effective_hash), ...)
+    object_store.put_stream(render_preview_key(content_hash), ...)
     update_render_row(status="preview_ready", ...)
     run_manim_final(...)
-    object_store.put_stream(render_final_key(effective_hash), ...)
+    object_store.put_stream(render_final_key(content_hash), ...)
     update_render_row(status="final_ready", ...)
 ```
 
 **Behavior:**
 
-- If a second worker picks up an identical-hash render while the first is still in flight, `RenewableLock.__aenter__` waits up to `acquire_timeout_ms` (5s). It then raises `LockAcquisitionError`. The dispatching code catches that and short-circuits the second job: it attaches to the first job's `job_id` via `RendersRepository.find_in_flight_by_hash(effective_hash)` and returns that snapshot, no duplicate work.
+- If a second worker picks up an identical-hash render while the first is still in flight, `RenewableLock.__aenter__` waits up to `RENDER_LOCK_ACQUIRE_TIMEOUT_MS` (5s). It then raises `LockAcquisitionError`. The dispatching code catches that and short-circuits the second job: it attaches to the first job's `job_id` via `RendersRepository.find_in_flight_by_hash(content_hash)` and returns that snapshot, no duplicate work.
 - If the first worker crashes (kill, OOM, container restart): heartbeat task stops; TTL drains within ~`ttl_ms + heartbeat_interval_ms` worst case (40s); next caller acquires the lock and re-renders.
 - If the heartbeat detects the lock has been stolen (token mismatch — should not happen with correct TTL/interval math, but guarded), the worker raises `LockLost` and the Render row is marked `failed` with reason `lock_lost`. This is observable and recoverable, not silent.
 
-**Configuration** (module constants on `RenderControllerSettings`, per user preference):
+**Configuration** (module constants in `layersense_controller/locks.py`; the worker imports these directly, not through `RenderControllerSettings`):
 
-- `render_lock_ttl_ms: int = 30_000`
-- `render_lock_heartbeat_interval_ms: int = 10_000`
-- `render_lock_acquire_timeout_ms: int = 5_000`
+- `RENDER_LOCK_TTL_MS = 30_000`
+- `RENDER_LOCK_HEARTBEAT_INTERVAL_MS = 10_000`
+- `RENDER_LOCK_ACQUIRE_TIMEOUT_MS = 5_000`
 
 The Step 1 invariant `heartbeat_interval_ms < ttl_ms / 2` is satisfied with 3x margin.
 - `scene_path` is **removed** from both the agent response and the controller request. This is a breaking change — explicitly intended — and the frontend is updated in lockstep within this PR.
@@ -280,21 +287,21 @@ The Step 1 invariant `heartbeat_interval_ms < ttl_ms / 2` is satisfied with 3x m
 ```
 1. POST /render { conversation_id, source_code, content_hash, cli_flags? }
 2. controller normalizes cli_flags → canonical JSON
-3. controller computes effective hash = sha256(content_hash + canonical_cli_flags_json)
-4. RendersRepository.find_by_content_hash(effective_hash):
-     - hit AND preview+final keys point at extant blobs (object_store.head)
-       → create new Render row pointing at the SAME artifact keys (cache reuse),
-         set scene.current_render_id, return { job_id: synthetic, status: final_ready, urls }
-     - hit but blobs missing (drift)
-       → fall through, re-render
-     - miss
-       → object_store.put(render_source_key(effective_hash), source_code.encode())
-       → create Render row (status=queued, scene_py_artifact_key=...), enqueue Taskiq job
+3. controller computes canonical content_hash = sha256(source_bytes + canonical(cli_flags_json))
+4. RendersRepository.find_by_content_hash(content_hash):
+      - hit AND preview+final keys point at extant blobs (object_store.head)
+        → create new Render row pointing at the SAME artifact keys (cache reuse),
+          set scene.current_render_id, return { job_id: synthetic, status: final_ready, urls }
+      - hit but blobs missing (drift)
+        → fall through, re-render
+      - miss
+        → object_store.put(render_source_key(content_hash), source_code.encode())
+        → create Render row (status=queued, scene_py_artifact_key=...), enqueue Taskiq job
 5. Taskiq worker:
-     - object_store.get(scene_py_artifact_key) → write to /tmp/layersense-renders/<render_id>/scene.py
-     - run Manim preview → object_store.put_stream(render_preview_key(effective_hash), ...)
-     - update Render row (status=preview_ready, preview_artifact_key=...)
-     - run Manim final → object_store.put_stream(render_final_key(...), ...)
+      - object_store.get(scene_py_artifact_key) → write to /tmp/layersense-renders/<render_id>/scene.py
+      - run Manim preview → object_store.put_stream(render_preview_key(content_hash), ...)
+      - update Render row (status=preview_ready, preview_artifact_key=...)
+      - run Manim final → object_store.put_stream(render_final_key(...), ...)
      - update Render row (status=final_ready, final_artifact_key=..., log_artifact_key=...)
      - publish Redis pubsub on render-job channel (existing mechanism)
      - clean up /tmp workdir
@@ -302,7 +309,7 @@ The Step 1 invariant `heartbeat_interval_ms < ttl_ms / 2` is satisfied with 3x m
 7. Frontend hits /artifacts/by-hash/{content_hash}/preview (controller streams from object_store)
 ```
 
-The `cache_index` Redis lock from Step 1 is **deleted** in this PR — there is nothing left to lock around once `cache.py` is gone. In-flight render dedup is handled by `RenewableLock` keyed `layersense:lock:render:{effective_hash}` around the Taskiq task body, per the "Render dedup with heartbeat" section above. Even if dedup ever fails (e.g., lock acquisition timeout coincides with row-creation race), the worst case is two workers producing byte-identical blobs at the same content-addressed key — no corruption, just wasted CPU.
+The `cache_index` Redis lock from Step 1 is **deleted** in this PR — there is nothing left to lock around once `cache.py` is gone. In-flight render dedup is handled by `RenewableLock` keyed `layersense:lock:render:{content_hash}` around the Taskiq task body, per the "Render dedup with heartbeat" section above. Even if dedup ever fails (e.g., lock acquisition timeout coincides with row-creation race), the worst case is two workers producing byte-identical blobs at the same content-addressed key — no corruption, just wasted CPU.
 
 ---
 
@@ -364,7 +371,7 @@ The `cache_index` Redis lock from Step 1 is **deleted** in this PR — there is 
 
 **integration (using `fakeredis` + in-memory SQLite + `LocalFSObjectStore` rooted at `tmp_path`):**
 - `POST /render` happy path: request body carries `source_code` + `content_hash` (as the browser-side flow forwards from the agent's response in this step); controller writes source to ObjectStore at `renders/{content_hash}/source.py`, renders (Taskiq InMemoryBroker), eventually reaches `final_ready`; `/artifacts/by-hash/...` serves the bytes that were `put` by the worker.
-- `POST /render` cache-hit path: a previous Render with the same `effective_hash` exists; controller short-circuits, no Taskiq dispatch, response status is `final_ready` immediately.
+- `POST /render` cache-hit path: a previous Render with the same `content_hash` exists; controller short-circuits, no Taskiq dispatch, response status is `final_ready` immediately.
 - `POST /render` cache-drift path: Render row exists but blobs are missing (object store wiped); controller re-renders rather than returning broken URLs.
 - `POST /render` with the legacy `scene_path` payload returns HTTP 422 (verifies the breaking-change criterion 12).
 - `/artifacts/scenes/{scene_uuid}` resolves through `ScenesRepository.current_render_id → Render → preview/final key → object_store.open`.
@@ -419,9 +426,9 @@ The `cache_index` Redis lock from Step 1 is **deleted** in this PR — there is 
 14. The agent does not import `layersense_storage` (AST/grep check).
 15. The agent does not write to disk under any code path (verified by patching `pathlib.Path.write_*` and `builtins.open` in write mode to raise; the test suite passes anyway).
 16. `layersense_controller/src/layersense_controller/watcher.py` raises `NotImplementedError` on startup with a message pointing at Step 7 (verified by test).
-17. Two simultaneous identical-hash renders are deduped by `RenewableLock` keyed `layersense:lock:render:{effective_hash}`; only one `manim` subprocess invocation occurs (verified by a `subprocess.run` spy in an integration test).
+17. Two simultaneous identical-hash renders are deduped by `RenewableLock` keyed `layersense:lock:render:{content_hash}`; only one `manim` subprocess invocation occurs (verified by a `subprocess.run` spy in an integration test).
 18. `RenewableLock` heartbeat extends TTL during a simulated long render (verified by an integration test that holds the lock past initial `ttl_ms` and observes the key still present).
-19. `RenderControllerSettings` exposes `render_lock_ttl_ms`, `render_lock_heartbeat_interval_ms`, `render_lock_acquire_timeout_ms` as module-level defaults (per user preference, not as env-only fields).
+19. `layersense_controller/locks.py` exposes `RENDER_LOCK_TTL_MS`, `RENDER_LOCK_HEARTBEAT_INTERVAL_MS`, and `RENDER_LOCK_ACQUIRE_TIMEOUT_MS`; workers import them directly rather than reading lock values from `RenderControllerSettings`.
 20. A `_default` project row exists after first `POST /render` with no prior project; subsequent calls reuse it (idempotency verified).
 21. `uv run --all-packages pytest -m unit` passes.
 22. `uv run --all-packages pytest -m integration` passes.
@@ -488,6 +495,8 @@ Two PRs (3a → 3b) per the "Delivery split" section above.
 7. The agent returns raw source as a string in HTTP JSON. Manim files are 1–10 KB; HTTP transport is trivial. Confirmed (Option C, C1a).
 8. The browser still talks to both agent and controller in this step. Step 4 retires the browser→agent direct call by introducing `POST /scenes/{id}/generate` on the controller as the single entry point. Holding the browser→agent call here keeps the PR scoped.
 9. The `/render` HTTP-contract break is a hard cutover with no dual-shape support — see `Agent ↔ Controller contract change (BREAKING)`. Single-user dev stage; no external clients to migrate.
-10. `RenewableLock` config (`render_lock_ttl_ms`, `render_lock_heartbeat_interval_ms`, `render_lock_acquire_timeout_ms`) lives as module-level defaults on `RenderControllerSettings`, per user preference for module constants over env-only fields. Tunable via env if needed; not required for default operation.
+10. `RenewableLock` config lives as module constants in `layersense_controller/locks.py`: `RENDER_LOCK_TTL_MS = 30_000`, `RENDER_LOCK_HEARTBEAT_INTERVAL_MS = 10_000`, and `RENDER_LOCK_ACQUIRE_TIMEOUT_MS = 5_000`. The worker imports these constants directly; `RenderControllerSettings` does not expose lock values.
+
+**Amendment (2026-05-22):** RenewableLock config changed from settings fields to module constants (decision #15). Hash terminology aligned with canonical single-hash model. Per audit findings 3.4, 3.9.
 
 → Correct any of these or I proceed to Step 4 (frontend revamp + explicit project/scene CRUD + Option C orchestration), which removes the `_default` shim **and** moves the agent call server-side so the browser only talks to the controller.

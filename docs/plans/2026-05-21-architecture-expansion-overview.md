@@ -100,6 +100,7 @@ Scene
   project_id      FK Project (CASCADE)
   name            TEXT NOT NULL
   order_index     INT NOT NULL                       UNIQUE(project_id, order_index)
+                                                            UNIQUE(project_id, name)
   prompt          TEXT DEFAULT ''
   excalidraw_scene_json   TEXT DEFAULT '{}'          # inline JSON column (decided)
   current_render_id       FK Render (SET NULL)       # denormalized for nav UI
@@ -118,6 +119,7 @@ Render
   id              uuid TEXT PK
   scene_id        FK Scene (CASCADE)
   parent_render_id        FK Render NULL (SET NULL)  # for refinement chains, Step 5
+  refinement_prompt       TEXT DEFAULT ''            # prompt instruction for refinement renders (Step 5)
   content_hash    TEXT NOT NULL                      # sha256(scene_py + cli_flags)
   status          TEXT NOT NULL                      # generating | queued | preview_ready | final_ready | failed
   scene_py_artifact_key   TEXT NULL                  # set after agent returns (nullable while status=generating)
@@ -163,6 +165,8 @@ projects/{project_id}/scenes/{scene_id}.py        # mutable current scene source
 projects/{project_id}/components/{name}.py        # reusable components (Step 7+)
 projects/{project_id}/assets/{asset_id}/{filename}  # binary assets (Step 7+)
 ```
+
+**Canonical hash definition:** `content_hash = sha256(scene_py_bytes + canonical(cli_flags_json))`. A single hash covers both source identity and render configuration. All plans use this definition; there is no separate "effective hash" or "source hash." The canonical serialization of `cli_flags_json` is compact-sorted JSON (`json.dumps(flags, sort_keys=True, separators=(",", ":"))`).
 
 **Why content-addressed renders.** Everything for one render lives under one `renders/{content_hash}/` prefix. Two `Render` rows that converge on the same source bytes share the blobs for free (deduplication at the storage layer). The directory is trivially deletable and exportable as a unit.
 
@@ -295,7 +299,7 @@ Adds `POST /api/v1/scenes/{id}/refine` on the controller. Uses `parent_render_id
 
 ### Step 6: Project export — `2026-05-21-step-6-project-export-plan.md`
 
-`POST /api/v1/projects/{id}/export` produces a downloadable zip containing all scene `.py` files, a manifest, and a generated `manim.cfg`. Cheap once Steps 2 + 3 + 4 are in.
+`GET /api/v1/projects/{id}/export` produces a downloadable source-only zip containing all scene `.py` files, a manifest, and a generated `manim.cfg` (no mp4 renders). Cheap once Steps 2 + 3 + 4 are in.
 
 ### Step 7: Multi-file project + components library (Agent Tier 2) — `2026-05-21-step-7-multi-file-projects-and-components-plan.md`
 
@@ -385,6 +389,22 @@ Each step's "wipe the old artifact dirs and re-render" is the migration. Accepta
 
 Per Mathias's preference. `cache_lock_ttl_ms`, `cache_lock_acquire_timeout_ms` are module-level constants in `locks.py`.
 
+### 16. DQ1 resolved: agent stays pure-function with inline FileBundle (Step 7)
+
+The agent does not gain tool access. Step 7's multi-file response is an inline `FileBundle` (list of `{path, content}` pairs). The controller writes them to ObjectStore. This preserves Option C. Re-evaluated only if Step 9 friction log shows it's untenable. Confirmed.
+
+### 17. S3 serving strategy: proxy-bytes default (Step 8)
+
+The controller always proxies artifact bytes (HTTP 200). No redirect to presigned URLs by default. A future opt-in `LAYERSENSE_S3_DIRECT_SERVE=true` flag can enable 302 redirects once SigV4 host-signing is verified for the chosen backend. This eliminates the redirect-vs-stream contract leak. Confirmed.
+
+### 18. Step 9 evidence: friction log only, no quantitative metrics dependency
+
+Step 9's go/no-go decision is based on a qualitative friction log maintained during Step 7 usage. The `metrics.json` sidecar and quantitative thresholds are dropped — they created a dependency on instrumentation that Step 7 doesn't ship. Friction log format and location: `docs/decisions/step-7-agent-friction-log.md`. Confirmed.
+
+### 19. Export endpoint is GET, source-only (Step 6)
+
+`GET /api/v1/projects/{id}/export` returns a zip of `.py` files + manifest + `manim.cfg`. No mp4 renders included. Streaming zip not needed at this scale. The GET method allows `<a href=...>` download links in the frontend. Confirmed.
+
 ---
 
 ## What to read next, by task
@@ -421,6 +441,7 @@ Per Mathias's preference. `cache_lock_ttl_ms`, `cache_lock_acquire_timeout_ms` a
 - A general-purpose UI with onboarding, empty-state hand-holding, etc.
 - Multi-scene rendering ("render whole project at once").
 - OpenCode integration (revisited in Step 9 only if Tier 2 hits real limits).
+- Quantitative metrics sidecar (`metrics.json`) in the render pipeline.
 
 ---
 
@@ -435,5 +456,6 @@ This document captures the architecture conversation between Mathias and the Sis
 5. **Step 3 and Step 4 plans amended** to reflect Option C. See amendment sections in those steps above.
 6. **Normalization pass (2026-05-21, post-audit).** All nine plan files audited; per-plan drift surfaced in `docs/plans/2026-05-21-architecture-plans-audit.md`. This overview promoted to canonical source for: schema, key layout, S3 framing, Step 7 layout coexistence, status enum. Per-step plans amended to cite this file. Migration numbering normalized: Step 5 = 0004, Step 6 = 0005, Step 7 = 0006. Canonical source-key form chosen: `renders/{content_hash}/source.py` (free dedup, single prefix per render). Substantive BLOCKING fixes in individual plans (Step 3 contract, Step 4 race, Step 5 schema mismatch, Step 6 streaming, Step 7 split, Step 8 SigV4) deferred to focused per-step amendment passes.
 7. **Step 1 + Step 3 + Step 4 substantive amendment pass (2026-05-21).** Step 1 plan extended with `RenewableLock` (heartbeat-renewed long-lived mutex) so Step 3 has the primitive ready. Step 3 plan amended: delivery split into PRs 3a (storage package) and 3b (controller wiring); `/render` HTTP-contract break made explicit (`scene_path` → `source_code` + `content_hash`, hard cutover, no dual-shape support); watcher hard-disabled on startup with Step 7 redesign pointer; `RenewableLock` wired around the worker entrypoint with module-constant config (`render_lock_ttl_ms=30_000`, `render_lock_heartbeat_interval_ms=10_000`, `render_lock_acquire_timeout_ms=5_000`); `_default` shim cleanup boundary declared at Step 4. Step 4 plan amended: `_default` wipe via migration `0003_drop_default_project_shim.py` + companion idempotent blob-wipe script as first commit; `RenderJobSnapshot` hard schema cutover (`render_id` supersedes `job_id`, status enum unified to backend `Render.status`, `thumbnail_url` added); frame diff algorithm specified as hard-delete-on-disappear with duplicate-id `HTTP 422` collision rule and UX warning tooltip; `isSaving`-gated Generate clarified as race-prevention by construction (no `Render`-row scene-state snapshot fields); real frontend prop shapes reconciled (`Canvas` keeps imperative `forwardRef<CanvasHandle>` and gains additive `initialScene` + `onChange` props; `VideoPlayer` keeps URL-shaped props and adopts backend status enum; UX-shaped `VideoPlayerStatus` deleted). Outstanding BLOCKING items now limited to: Step 5 schema mismatch, Step 6 streaming scope, Step 7 split (DQ1 unresolved), Step 8 SigV4 host rewrite + redirect-vs-stream contract leak, Step 9 metrics-instrumentation dependency on Step 7.
+8. **BLOCKING audit resolution pass (2026-05-22).** Four Oracle subagents audited all 9 plans against this overview. Design decisions 16–19 added to resolve open BLOCKINGs: DQ1 (FileBundle), S3 serving (proxy-bytes), Step 9 evidence (friction log only), export endpoint (GET + source-only). Schema amended: `UNIQUE(project_id, name)` on Scene, `Render.refinement_prompt` added. Hash terminology canonicalized (single `content_hash`). Cache-hit ordering clarified: `/generate` always calls agent first; cache hit is post-agent. Remaining per-plan amendments applied in same pass.
 
 If you are extending this document, add a dated entry here.

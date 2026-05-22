@@ -103,6 +103,8 @@ updated_at               TEXT NOT NULL
 UNIQUE (project_id, order_index)
 UNIQUE (project_id, name)
 
+# Confirmed canonical — both UNIQUE(project_id, order_index) and UNIQUE(project_id, name) are canonical per overview decision.
+
 -- Frame  (storyboard beat inside a Scene; ordered prompt-augmentation unit)
 id                       TEXT PRIMARY KEY
 scene_id                 TEXT NOT NULL REFERENCES scene(id) ON DELETE CASCADE
@@ -191,7 +193,7 @@ Same shape for `ProjectsRepository`, `FramesRepository`, `RendersRepository`. Re
 
 ## Pydantic DTOs (`schemas.py`)
 
-`ProjectRead`, `SceneRead`, `SceneWithFramesRead`, `FrameRead`, `RenderRead`, plus `*Create` / `*Update` variants. These are what `layersense_agent` and `layersense_controller` import. They never import ORM models directly.
+`ProjectRead`, `SceneRead`, `SceneWithFramesRead`, `FrameRead`, `RenderRead`, plus `*Create` / `*Update` variants. DTOs are imported by `layersense_controller` only. The agent defines its own request/response models and never imports `layersense_persistence`. They never import ORM models directly.
 
 ## Workspace Integration
 
@@ -273,3 +275,5 @@ Single focused PR. ~600–900 LOC across `layersense_persistence/src/**` and ~40
 - Step 4 plan: Frontend revamp (project navigation, scene editor, persistence-backed). Browser stops calling the agent directly; controller orchestrates the agent call server-side.
 
 These three plans should be authored after this package is merged and exercised in at least one consuming service path.
+
+**Amendment (2026-05-22):** UNIQUE(project_id, name) confirmed canonical. DTO boundary clarified: controller-only. Per audit finding 2.2.

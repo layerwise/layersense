@@ -1,9 +1,11 @@
 # Multi-File Projects + Components Library (Agent Tier 2) — Implementation Plan
 
-**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Migration number is `0006` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006). This step's `projects/{project_id}/...` ObjectStore tree is the mutable working copy; it **coexists with** the existing `renders/{content_hash}/...` immutable snapshot tree (per overview "Storage model"). It does not replace it. Open architectural question DQ1 (agent tool surface vs. inline `FileBundle`) is unresolved — decide before implementation.
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Migration number is `0006` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006). This step's `projects/{project_id}/...` ObjectStore tree is the mutable working copy; it **coexists with** the existing `renders/{content_hash}/...` immutable snapshot tree (per overview "Storage model"). It does not replace it. **DQ1 RESOLVED (2026-05-22, design decision #16):** The agent stays pure-function with inline FileBundle response. No tool surface. Controller writes all files to ObjectStore. Option C preserved. Re-evaluate only if Step 9 friction log shows this is untenable.
 **Step in build order:** 7 of 9
 **Depends on:** Step 2 (`layersense_persistence`), Step 3 (`layersense_storage` + ObjectStore), Step 4 (frontend revamp + controller orchestration), Step 5 (agent refinement), Step 6 (project export)
 **Unblocks:** Step 8 (S3-compatible ObjectStore backend), Step 9 (OpenCode-style agentic runtime, speculative)
+
+**Amendment (2026-05-22):** DQ1 resolved: inline FileBundle (decision #16). Migration numbering corrected to 0006. Cache-hit ordering fixed (agent always called for /generate). __init__.py marked as materialization-only. Hash terminology unified. Per audit findings 7.1-7.5.
 
 ---
 
@@ -59,9 +61,7 @@ After this step, a project's files live under a stable prefix in the ObjectStore
 
 ```
 projects/{project_id}/
-  __init__.py                          # empty; makes the project a Python package
   components/
-    __init__.py                        # empty
     spring.py                          # a component file
     text_utils.py                      # another component file
   assets/                              # reserved; empty until Step 7.5
@@ -73,7 +73,7 @@ projects/{project_id}/
 
 - **`scenes/{scene_id}.py`** is the canonical current source for a scene. It is the file the agent is asked to generate or update. It is distinct from `renders/{content_hash}/source.py` (the immutable render-time snapshot). The scene file is mutable; the render snapshot is immutable.
 - **`components/*.py`** are shared Python modules. The agent can create new ones or update existing ones. The controller writes them back after each agent call.
-- **`__init__.py` files** are written once on project creation and never modified. They make the project a proper Python package so `from components.spring import ...` resolves when Manim is invoked from the project root.
+- **`__init__.py` files** are materialization-only (written to `/tmp` workdir for Manim execution). They are NOT stored in ObjectStore canonical key layout.
 - **`assets/`** is reserved. No files are written here in Step 7.
 - **Component file paths are relative to the project root.** The agent emits paths like `components/spring.py`, not absolute paths. The controller prepends `projects/{project_id}/` when writing to the ObjectStore.
 
@@ -81,12 +81,6 @@ projects/{project_id}/
 
 ```python
 # layersense_storage/src/layersense_storage/keys.py additions
-def project_init_key(project_id: str) -> str:
-    return f"projects/{project_id}/__init__.py"
-
-def project_components_init_key(project_id: str) -> str:
-    return f"projects/{project_id}/components/__init__.py"
-
 def project_component_key(project_id: str, relative_path: str) -> str:
     # relative_path: "components/spring.py"
     return f"projects/{project_id}/{relative_path}"
@@ -95,9 +89,9 @@ def project_scene_key(project_id: str, scene_id: str) -> str:
     return f"projects/{project_id}/scenes/{scene_id}.py"
 ```
 
-**Project initialization** (on `POST /api/v1/projects`): the controller writes the two `__init__.py` files to the ObjectStore immediately. This is idempotent; re-running it on an existing project is safe.
+**Project initialization** (on `POST /api/v1/projects`): the controller does not write package `__init__.py` files to ObjectStore. The render materializer creates empty `__init__.py` files in the `/tmp` workdir each time Manim runs.
 
-**Backwards compatibility:** existing projects (created before Step 7) have no `projects/{project_id}/` prefix in the ObjectStore. Their renders still work via `renders/{content_hash}/source.py`. The new package layout is only used for projects that have at least one component or that were created after Step 7. A project is considered "package-mode" if `projects/{project_id}/__init__.py` exists in the ObjectStore.
+**Backwards compatibility:** existing projects (created before Step 7) have no `projects/{project_id}/` prefix in the ObjectStore. Their renders still work via `renders/{content_hash}/source.py`. The new package layout is only used for projects that have at least one component, a project-scoped scene at `projects/{project_id}/scenes/{scene_id}.py`, or that were created after Step 7.
 
 ---
 
@@ -134,7 +128,7 @@ CREATE INDEX ix_component_project_id ON component(project_id);
 #### 2b. `Render.bundle_manifest_json` column
 
 ```sql
--- Same migration 0004
+-- Same migration 0006
 ALTER TABLE render ADD COLUMN bundle_manifest_json TEXT NOT NULL DEFAULT '{}';
 ```
 
@@ -155,7 +149,7 @@ This records exactly which component versions were used for a render. Allows rep
 #### 2c. `Project.python_package_name` field
 
 ```sql
--- Same migration 0004
+-- Same migration 0006
 ALTER TABLE project ADD COLUMN python_package_name TEXT;
 ```
 
@@ -254,7 +248,9 @@ After this step, the agent returns a `FileBundle`:
 - The bundle **may** contain zero or more component files (`components/*.py`). These are written to the ObjectStore and the `Component` table before the render starts.
 - The bundle **must not** contain files outside `scenes/` and `components/`. The controller validates this and rejects bundles with unexpected paths (security: prevents path traversal).
 - The bundle **must not** contain `__init__.py` files. Those are managed by the controller.
-- `content_hash` is no longer returned by the agent. The controller computes it from the scene file content after receiving the bundle.
+- `content_hash` is no longer returned by the agent. The controller computes it after receiving the bundle.
+
+**Canonical render hash definition:** `content_hash` is the controller-computed SHA-256 over the canonical render input (scene content plus normalized CLI flags JSON). It is the render cache key used under `renders/{content_hash}/...`. Component `content_hash` fields remain SHA-256 hashes of each component file's current content.
 
 **Backwards compatibility:** the agent's response schema gains a `files` field. If the agent returns the old `{ source_code, content_hash }` shape (legacy agent or Step 4/5 agent), the controller wraps it into a single-file bundle automatically. This allows a gradual rollout.
 
@@ -286,12 +282,12 @@ The `generate_and_render` Taskiq task (from Step 4) is extended:
      (See Design Question #3 for rationale.)
 8. Write scene file to ObjectStore:
    ObjectStore.put(project_scene_key(project_id, scene_id), scene_content.encode())
-9. Compute effective_hash = sha256(scene_content + canonical_cli_flags_json)
+9. Compute content_hash = sha256(scene_content + canonical_cli_flags_json)
 10. Build bundle_manifest_json from current component content_hashes.
-11. RendersRepository.find_by_content_hash(effective_hash):
+11. RendersRepository.find_by_content_hash(content_hash):
     - hit + blobs exist → reuse (same as Step 4 cache-hit path)
     - miss or drift → continue
-12. ObjectStore.put(render_source_key(effective_hash), scene_content.encode())
+12. ObjectStore.put(render_source_key(content_hash), scene_content.encode())
     Render.scene_py_artifact_key=..., Render.bundle_manifest_json=..., status="queued"
 13. Materialize full project to /tmp/layersense-renders/{render_id}/project/:
     - Write __init__.py, components/__init__.py
@@ -449,7 +445,7 @@ The `Component` table has one row per `(project_id, relative_path)`. Each agent 
 
 **`layersense_storage/`**
 
-- `src/layersense_storage/keys.py` — add `project_init_key`, `project_components_init_key`, `project_component_key`, `project_scene_key` helpers.
+- `src/layersense_storage/keys.py` — add `project_component_key`, `project_scene_key` helpers.
 - `tests/unit/test_keys.py` — extend with new key helpers.
 
 **`layersense_controller/`**
@@ -493,7 +489,7 @@ The `Component` table has one row per `(project_id, relative_path)`. Each agent 
 
 - `src/layersense_controller/render_tasks.py` (or `render_tasks_generate.py`) — extend `generate_and_render` task with steps 1–18 from the orchestration design above.
 - `src/layersense_controller/services/agent_client.py` — update `generate_animation` to accept `project_context: ProjectContext | None` and return `FileBundle` (with backwards-compat shim for old `{ source_code, content_hash }` response shape).
-- `src/layersense_controller/api/projects.py` — `POST /api/v1/projects` now also writes `__init__.py` files to the ObjectStore.
+- `src/layersense_controller/api/projects.py` — `POST /api/v1/projects` initializes project metadata without writing package `__init__.py` files to ObjectStore.
 - `src/layersense_controller/main.py` — register `components` router; conditionally start watcher if `LAYERSENSE_ENABLE_WATCHER=true`.
 - `src/layersense_controller/config.py` — add `project_workdir: Path`, `enable_watcher: bool`.
 - `docker-compose.yml` — add `LAYERSENSE_ENABLE_WATCHER` env var (default `false`); document how to opt in.
@@ -580,7 +576,7 @@ The `Component` table has one row per `(project_id, relative_path)`. Each agent 
 - Second generate on the same scene: agent returns an updated component. Controller overwrites the component in ObjectStore, updates Component row, re-renders. Old Render row's `bundle_manifest_json` still reflects the old component hash.
 - Agent returns a bundle with only the scene file (no components): controller renders normally; no Component rows are created or modified.
 - Agent returns an invalid bundle (path traversal): controller sets `Render.status="failed"` with a descriptive error; no files are written to ObjectStore.
-- Cache-hit path with components: effective hash matches an existing Render; agent is not called; component files are not re-written; status goes straight to `final_ready`.
+- Cache-hit path with components: `/generate` always calls the agent first to obtain the current `FileBundle`; after the controller computes `content_hash`, a cache hit reuses existing render artifacts and skips Manim rendering. Component writeback still follows the bundle-writeback rules before the post-agent cache check.
 
 **`layersense_controller` — `test_watcher.py`:**
 
@@ -743,7 +739,7 @@ This plan stores only content hashes in `bundle_manifest_json`. To recover the a
 9. Existing projects (created before Step 7) are not automatically migrated to package mode. They continue to work as single-file scenes. The "convert to multi-file" migration is a future follow-up.
 10. The Components tab in the frontend is read-only. In-browser editing is explicitly out of scope for Step 7.
 11. Asset uploads (images, fonts) are deferred to Step 7.5. Manim stdlib assets are sufficient for the initial component library use case.
-12. The `bundle_manifest_json` column is added to `Render` in migration `0004`. If migration `0003` (from Step 4) has not yet been finalized, fold all Step 7 schema changes into a single migration.
+12. The `bundle_manifest_json` column is added to `Render` in migration `0006`. If migration `0006` has not yet been finalized, fold all Step 7 schema changes into that single migration.
 13. `just lint` and `just test` are the verification gates before claiming any PR in this step is done.
 
-→ Confirm DQ1–DQ5 before implementation begins. DQ1 is the most consequential; it determines whether the agent gains a tool surface or stays a pure function.
+→ Confirm DQ2–DQ5 before implementation begins. DQ1 is resolved by design decision #16: the agent stays a pure function with inline `FileBundle` response.

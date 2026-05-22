@@ -58,17 +58,25 @@ from uuid import uuid4
 
 from redis.asyncio import Redis
 
+# Module constants — not settings fields (design decision #15)
+CACHE_LOCK_TTL_MS = 30_000
+CACHE_LOCK_ACQUIRE_TIMEOUT_MS = 10_000
+CACHE_LOCK_POLL_INTERVAL_MS = 50
+RENDER_LOCK_TTL_MS = 30_000
+RENDER_LOCK_HEARTBEAT_INTERVAL_MS = 10_000
+RENDER_LOCK_ACQUIRE_TIMEOUT_MS = 5_000
+
 class LockAcquisitionError(RuntimeError):
-    """Raised when a lock cannot be acquired within the configured timeout."""
+    """Raised when a lock cannot be acquired within the acquisition timeout."""
 
 @asynccontextmanager
 async def redis_lock(
     redis: Redis,
     *,
     key: str,
-    ttl_ms: int = 30_000,
-    acquire_timeout_ms: int = 10_000,
-    poll_interval_ms: int = 50,
+    ttl_ms: int = CACHE_LOCK_TTL_MS,
+    acquire_timeout_ms: int = CACHE_LOCK_ACQUIRE_TIMEOUT_MS,
+    poll_interval_ms: int = CACHE_LOCK_POLL_INTERVAL_MS,
 ) -> AsyncIterator[None]:
     """Acquire a Redis-backed mutex on `key` with a TTL safety net.
 
@@ -111,9 +119,9 @@ class RenewableLock:
         redis: Redis,
         *,
         key: str,
-        ttl_ms: int = 30_000,
-        heartbeat_interval_ms: int = 10_000,
-        acquire_timeout_ms: int = 5_000,
+        ttl_ms: int = RENDER_LOCK_TTL_MS,
+        heartbeat_interval_ms: int = RENDER_LOCK_HEARTBEAT_INTERVAL_MS,
+        acquire_timeout_ms: int = RENDER_LOCK_ACQUIRE_TIMEOUT_MS,
     ) -> None: ...
 
     async def __aenter__(self) -> "RenewableLock": ...
@@ -150,9 +158,9 @@ Namespaced so future locks (`layersense:lock:render:<content_hash>` in Step 3+, 
 
 ### Configuration
 
-Reuse `layersense_controller.config.settings.redis_url`. No new env vars.
+Reuse `layersense_controller.config.settings.redis_url`. No new env vars and no TTL settings fields.
 
-Optional: add `cache_lock_ttl_ms: int = 30_000` and `cache_lock_acquire_timeout_ms: int = 10_000` to `RenderControllerSettings` so they are explicitly tunable. These are public-enough that hard-coding them invites a "where does this come from" hunt later.
+Lock TTLs and polling/acquisition timeouts are module-level constants in `locks.py`, tunable only by code change (design decision #15).
 
 ### Failure modes
 
@@ -179,8 +187,6 @@ Optional: add `cache_lock_ttl_ms: int = 30_000` and `cache_lock_acquire_timeout_
   - Delete `_cache_lock_path()` and the `fcntl`-based `_cache_lock()`.
   - Replace its callsites with `redis_lock_sync(client, key="layersense:lock:cache_index", ...)`.
   - Lazy-construct the sync redis client at first use (mirror the existing `broker.create_redis_client` pattern but sync).
-- `layersense_controller/src/layersense_controller/config.py`
-  - Add `cache_lock_ttl_ms` and `cache_lock_acquire_timeout_ms` fields with defaults.
 - `README.md`
   - Strike the "cache-index contention remains a known limitation" sentence.
   - Add one line under "Notes" documenting that cache-index writes now coordinate via Redis.
@@ -250,7 +256,7 @@ A reviewer can verify each directly:
 |---|---|
 | Sync `redis.Redis` client introduces a new connection lifecycle in `cache.py` | Use a module-level lazy singleton, mirroring `broker.py` patterns. Single-user, low connection count — no pool tuning needed. |
 | Tests that depend on the old file-lock break silently | Acceptance criterion 5 forces inspection. Any removal is called out in PR description. |
-| Lock TTL too short for an unexpectedly slow cache write | 30s default is generous; tunable via config. If it ever bites, raise it. Step 3 obsoletes the lock entirely within weeks. |
+| Lock TTL too short for an unexpectedly slow cache write | 30s default is generous; module constant in `locks.py`, tunable only by code change (design decision #15). If it ever bites, raise it in code. Step 3 obsoletes the lock entirely within weeks. |
 | `fakeredis` does not support `SET NX PX` or Lua eval correctly | `fakeredis>=2` supports both. Verify by running `test_locks.py` first; if any gap, fall back to a real Redis container for that one suite via `pytest-docker`. Unlikely. |
 
 ---
@@ -265,7 +271,9 @@ Single small PR. ~250–400 LOC across `locks.py` (now includes `RenewableLock`)
 
 1. `fakeredis>=2` is acceptable as the test boundary. It is the standard repo pattern (already used in `test_render_jobs_fakeredis.py`).
 2. `redis-py`'s sync API is acceptable inside `cache.py`. It is a transitive dep of `redis.asyncio` already, so no new external dep is added.
-3. Adding `cache_lock_ttl_ms` and `cache_lock_acquire_timeout_ms` to `RenderControllerSettings` is preferable to hard-coding constants. Push back if you want them as plain module constants instead.
+3. Lock TTL/acquisition/poll settings are plain module constants in `locks.py`, tunable only by code change (design decision #15), not `RenderControllerSettings` fields or env-backed config.
 4. This step lands **before or in parallel with** the persistence-package step. Both touch disjoint files (`locks.py` + `cache.py` here; new package there), so order does not matter — but this one is a smaller, faster bug fix and may as well ship first.
 
 → Correct any of these or I proceed to Step 3 (`ObjectStore` + `cache.py` deletion + `RendersRepository` wiring), which depends on **both** Step 1 and Step 2 being merged.
+
+**Amendment (2026-05-22):** TTL values changed from settings fields to module constants per design decision #15 and audit finding 1.1.

@@ -1,9 +1,11 @@
 # OpenCode-Style Agentic Runtime — Decision Plan
 
-**Status:** Speculative — decision plan, not implementation plan. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. The metrics sidecar at `renders/{content_hash}/metrics.json` referenced in §"Why this step" requires Step 7 to ship a metrics instrumentation slice; that work is not currently in Step 7's plan and remains an open dependency.
+**Status:** Speculative — decision plan, not implementation plan. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Evidence comes from the qualitative Step 7 agent friction log, not from metrics instrumentation.
 **Step in build order:** 9 of 9
 **Depends on:** Step 7 (multi-file projects + components library, Agent Tier 2) — must be in real use before this decision has inputs
 **Unblocks:** nothing in the current migration; a "proceed" decision opens a new implementation track outside this 9-step plan
+
+**Amendment (2026-05-22):** Evidence model changed to friction-log-only (decision #18). Quantitative thresholds and metrics.json dependency removed. Option C framing clarified as potentially superseded. Per audit findings 9.1, 9.3-9.4.
 
 ---
 
@@ -31,7 +33,7 @@ This is a binary decision with a third option:
 - **No, don't swap:** invest the same effort in smarter payload assembly, better prompting, and controller-side refinement automation.
 - **Partial:** extend the existing `openai-agents` tool surface without adopting a new runtime framework — the lowest-cost path to richer agent behavior.
 
-The decision must be made with evidence. This plan defines what evidence to collect and what thresholds trigger each outcome.
+The decision must be made with evidence. This plan defines what qualitative evidence to collect and what friction patterns trigger each outcome.
 
 ---
 
@@ -58,33 +60,11 @@ Scenes within the same project use inconsistent naming, style, or structure in w
 
 ## Evidence-gathering plan for Step 7
 
-The goal is to have real numbers when this decision is made, not impressions. The following lightweight instrumentation should be added **during Step 7 implementation** (not deferred to Step 9).
+**Evidence model (design decision #18):** The go/no-go decision is based on a qualitative friction log maintained at `docs/decisions/step-7-agent-friction-log.md` during Step 7 usage. Quantitative metrics (render time, token count, etc.) and the `metrics.json` sidecar are dropped — they created a dependency on instrumentation that Step 7 does not ship.
 
-### What to log
+Decision criteria: the friction log documents specific cases where the inline FileBundle model caused measurable developer friction (failed generations, manual workarounds, scope limitations). If 3+ distinct friction patterns emerge that a tool surface would resolve, proceed with evaluation. Otherwise, the pure-function model is confirmed adequate.
 
-Add a structured log entry to the Taskiq worker on every generate/refine cycle. Log to the existing `Render` row's `log_artifact_key` blob plus a structured JSON sidecar at `renders/{content_hash}/metrics.json`:
-
-```json
-{
-  "render_id": "...",
-  "scene_id": "...",
-  "project_id": "...",
-  "timestamp_iso": "...",
-  "payload_token_estimate": 4200,
-  "component_files_included": 3,
-  "component_files_total_in_project": 7,
-  "is_refinement": true,
-  "parent_render_id": "...",
-  "refinement_depth": 2,
-  "render_outcome": "final_ready | failed",
-  "manim_error_type": "ImportError | SyntaxError | RuntimeError | null",
-  "agent_latency_ms": 8400
-}
-```
-
-`payload_token_estimate` is a rough `len(payload_str) // 4` — no tokenizer dependency needed.
-
-### What to track manually (low-tech)
+### What to track manually
 
 Keep a running tally in `docs/decisions/step-7-agent-friction-log.md` (created when Step 7 ships). For each session where the agent produces a broken or unsatisfying result, record:
 
@@ -92,36 +72,26 @@ Keep a running tally in `docs/decisions/step-7-agent-friction-log.md` (created w
 - How many refinement cycles were needed
 - Whether the fix was "add more context to payload" or "the agent needed to reason differently"
 
-This is a 2-minute-per-incident log. The goal is 10–20 incidents before making the decision.
+This is a 2-minute-per-incident log. The goal is to identify distinct friction patterns, not to hit a numerical telemetry threshold.
 
 ### When to collect
 
-Start collecting from the first real Step 7 usage. Do not wait for Step 9 to formally begin. The instrumentation cost is low; the decision quality improvement is high.
+Start collecting from the first real Step 7 usage. Do not wait for Step 9 to formally begin.
 
 ---
 
 ## Decision criteria
 
-### Quantitative thresholds (where measurable)
-
-| Metric | Threshold for "proceed with swap" |
-|---|---|
-| Import-error rate (T1) | >40% of failed renders have `manim_error_type = ImportError` |
-| Payload token estimate | Median payload >60% of model context window on projects with >3 scenes |
-| Refinement depth | >30% of scenes require ≥3 refinement cycles |
-| Component duplication (T4) | Observed in >25% of projects with an established components library |
-
-These thresholds are deliberately conservative. A runtime swap is a multi-week investment; the bar should be high.
-
-### Qualitative criteria (where not measurable)
+### Friction-log criteria
 
 - **User frustration signal:** Mathias explicitly describes the agent as "too dumb for the task" on multiple occasions, not as a one-off.
 - **Payload assembly ceiling:** The controller's smart payload assembly (Step 7's "include relevant files" logic) has been tuned and still doesn't solve the problem. The issue is reasoning, not context.
 - **Diminishing returns on prompting:** Prompt engineering improvements have been tried and the failure modes persist.
+- **Tool-surface fit:** 3+ distinct friction patterns emerge that a file/tool surface would plausibly resolve better than inline `FileBundle` payloads.
 
 ### Criteria for "do not proceed"
 
-- Failure rates are below the thresholds above after 4+ weeks of real Step 7 usage.
+- Fewer than 3 distinct tool-surface-resolvable friction patterns appear after 4+ weeks of real Step 7 usage entries.
 - The failures that do occur are fixable by improving payload assembly or prompting, not by changing the runtime.
 - The user's actual workflow doesn't stress the agent enough to generate meaningful evidence (i.e., Step 7 is used lightly).
 
@@ -137,7 +107,7 @@ These thresholds are deliberately conservative. A runtime swap is a multi-week i
 
 **Integration cost:** High. OpenCode is designed as a standalone CLI/service, not as an embeddable library. Integrating it as the agent's internal runtime would require either spawning it as a subprocess (fragile) or extracting its tool-loop pattern into the agent codebase (significant rewrite). The agent's HTTP boundary would need to change: instead of returning bytes synchronously, it would need to run an async tool loop and return when done.
 
-**Does Option C survive?** Yes, with care. If OpenCode runs inside the agent process and the agent's HTTP boundary still accepts a payload and returns source bytes, the controller's view is unchanged. The risk is that OpenCode's filesystem tools would want to operate on a real project directory, which means the controller would need to materialize the project to a temp directory before calling the agent — a significant change to the worker flow.
+**Option C impact:** This step evaluates whether Option C should be amended. If the friction log justifies a tool surface, Option C is explicitly superseded for the agent's role in Step 7+ workflows. The risk is that OpenCode's filesystem tools would want to operate on a real project directory, which means the controller would need to materialize the project to a temp directory before calling the agent — a significant change to the worker flow.
 
 **Verdict:** High integration cost, unclear embeddability. Treat as inspiration for the tool surface design, not as a drop-in runtime.
 
@@ -241,7 +211,7 @@ The agent's tool loop: generate → check imports → read missing components �
 
 ## If not proceed: alternative investments
 
-If the evidence does not meet the thresholds, invest the same effort in:
+If the evidence does not meet the friction-log criteria, invest the same effort in:
 
 ### A1 — Smarter payload assembly in the controller
 
@@ -289,8 +259,8 @@ This step produces a decision, not code. The deliverable is:
 **`docs/decisions/2026-XX-XX-agent-runtime-decision.md`**
 
 That document must contain:
-1. The evidence collected (metrics from `metrics.json` logs + friction log entries).
-2. Which thresholds were met or not met.
+1. The evidence collected from the Step 7 friction log.
+2. Which friction patterns were found and whether 3+ distinct tool-surface-resolvable patterns emerged.
 3. The chosen direction (swap / don't swap / partial).
 4. The rationale.
 5. If proceeding: a link to the new implementation plan.
@@ -303,9 +273,9 @@ The decision document is the only acceptance criterion for Step 9. No code ships
 ## Risks
 
 ### R1 — Premature swap (high cost, low payoff)
-Swapping the runtime before hitting real limits adds weeks of implementation work, increases system complexity, and may not improve the user experience meaningfully. The thresholds in this plan are designed to prevent this, but the risk is real if the thresholds are set too low or the evidence is interpreted too generously.
+Swapping the runtime before hitting real limits adds weeks of implementation work, increases system complexity, and may not improve the user experience meaningfully. The friction-log criteria in this plan are designed to prevent this, but the risk is real if the criteria are set too low or the evidence is interpreted too generously.
 
-**Mitigation:** The thresholds are conservative. Require all quantitative thresholds to be met, not just one.
+**Mitigation:** The friction-log criteria are conservative. Require 3+ distinct tool-surface-resolvable friction patterns before proceeding.
 
 ### R2 — Too-late swap (Step 7 friction users would otherwise abandon over)
 If the agent is genuinely too limited for Step 7 workflows and the decision is deferred too long, the user's experience degrades and the tool becomes frustrating to use. The friction log is the early warning system.
@@ -313,9 +283,9 @@ If the agent is genuinely too limited for Step 7 workflows and the decision is d
 **Mitigation:** The friction log is a low-overhead signal. If T1–T5 triggers are appearing in every session, don't wait for the formal decision window — escalate.
 
 ### R3 — Analysis paralysis (the decision is never made)
-The evidence is "not enough yet" indefinitely. Step 7 is used lightly, the metrics log stays sparse, and the decision is perpetually deferred.
+The evidence is "not enough yet" indefinitely. Step 7 is used lightly, the friction log stays sparse, and the decision is perpetually deferred.
 
-**Mitigation:** Set a hard deadline: if Step 7 has been in use for 8+ weeks and the friction log has fewer than 10 entries, the decision defaults to "do not proceed" — the agent is not being stressed enough to justify a swap.
+**Mitigation:** Evaluation begins after the friction log accumulates 4+ weeks of real Step 7 usage entries. If the log remains sparse, the agent is not being stressed enough to justify a swap.
 
 ### R4 — Option C purity erodes during the swap
 A runtime swap introduces pressure to give the agent more direct access to project state (ObjectStore, DB). Each concession makes the architecture harder to reason about.
@@ -328,8 +298,8 @@ A runtime swap introduces pressure to give the agent more direct access to proje
 
 | Phase | Effort |
 |---|---|
-| Evidence collection (instrumentation in Step 7) | 1–2 days, done during Step 7 implementation |
-| Active evidence gathering (Step 7 usage) | 4–8 weeks of real usage |
+| Evidence collection (friction log during Step 7 usage) | Low-overhead manual logging |
+| Active evidence gathering (Step 7 usage) | Begins after the friction log accumulates 4+ weeks of real Step 7 usage entries |
 | Decision writeup | 1 day |
 | **Total for the decision itself** | **~1 week of elapsed time, ~2 days of active work** |
 | Implementation if proceed (Option D path) | 2–3 weeks |
@@ -348,16 +318,16 @@ Surface aggressively — these are the most likely sources of plan failure.
 Assumes Step 7 is actually implemented and used with real multi-file projects. If Step 7 is implemented but only used with single-scene projects, the evidence will be sparse and the decision will default to "do not proceed."
 
 **A2 — The user will use Step 7 enough to generate meaningful evidence.**
-This is a single-user tool. If Mathias doesn't use it heavily in the weeks after Step 7 ships, the friction log stays empty. The 8-week deadline in R3 is the mitigation.
+This is a single-user tool. If Mathias doesn't use it heavily in the weeks after Step 7 ships, the friction log stays empty. Evaluation begins only after 4+ weeks of real Step 7 usage entries accumulate.
 
 **A3 — The pure-function agent shape is the bottleneck, not the prompts.**
-The thresholds assume that the failures are architectural (the agent can't see enough of the project) rather than prompt-engineering failures (the agent isn't instructed well enough). If prompt improvements fix the failures, the runtime swap is not warranted. The "diminishing returns on prompting" qualitative criterion is the check on this assumption.
+The friction-log criteria assume that the failures are architectural (the agent can't see enough of the project) rather than prompt-engineering failures (the agent isn't instructed well enough). If prompt improvements fix the failures, the runtime swap is not warranted. The "diminishing returns on prompting" qualitative criterion is the check on this assumption.
 
 **A4 — Runtime choice is reversible (with cost).**
 Swapping to a new runtime is not irreversible, but it is expensive to undo. The architecture sketch above minimizes lock-in by keeping the agent's HTTP boundary unchanged, but the internal implementation would be significantly different. Treat the decision as "expensive to reverse" rather than "irreversible."
 
 **A5 — The agent's context window is the binding constraint, not latency or cost.**
-The thresholds focus on context-window pressure and reasoning failures. If the binding constraint turns out to be latency (the agent is too slow for interactive use) or cost (the agent is too expensive for heavy use), the decision framework needs to be revisited.
+The criteria focus on context-window pressure and reasoning failures. If the binding constraint turns out to be latency (the agent is too slow for interactive use) or cost (the agent is too expensive for heavy use), the decision framework needs to be revisited.
 
 **A6 — Option D (extending `openai-agents`) is actually lower cost than adopting a new framework.**
 This assumes the `openai-agents` tool surface is extensible enough to support the needed tools without fighting the framework. If `openai-agents` turns out to be poorly suited for custom tool loops, the cost estimate for Option D is wrong.
@@ -369,8 +339,8 @@ This assumes the `openai-agents` tool surface is extensible enough to support th
 1. **Is the speculative/decision-focused framing the right one, or should this be a concrete "swap to X" plan?**
    Recommendation: keep it decision-focused. The user's original mention of OpenCode was visionary; the architecture conversation explicitly deferred it. Concretizing it now would be premature. If the evidence is strong, the decision document will naturally become a concrete plan.
 
-2. **Should evidence collection start now (instrumenting Steps 5–7) or later (only after Step 7 is in heavy use)?**
-   Recommendation: start now. The `metrics.json` sidecar is cheap to add in Step 7. The friction log can start from Step 5 refinement usage. No decision overhead; just data.
+2. **Should evidence collection start now or later (only after Step 7 is in heavy use)?**
+   Recommendation: start the friction log when Step 7 ships. Do not add a `metrics.json` sidecar or quantitative instrumentation dependency.
 
 3. **Does Option C (agent as pure function) survive a runtime swap?**
    Recommendation: yes, even with a richer runtime inside the agent process. The agent's HTTP boundary stays pure-function from the controller's view. The richer runtime is an implementation detail. Any proposal that requires the agent to call back to the controller violates Option C and should be rejected.

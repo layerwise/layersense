@@ -1,9 +1,11 @@
 # S3-Compatible ObjectStore Backend — Implementation Plan
 
-**Status:** Proposed (not yet scheduled). Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. **The S3 backend is opt-in; the LocalFS backend remains the default and only production path.** This step exists to keep the `ObjectStore` abstraction honest (exercised by a second backend) and to unblock an opt-in dev-container path against RustFS/Garage/R2. Substantive BLOCKING audit findings (SigV4 host rewrite, redirect-vs-stream contract leak) are not addressed by this normalization pass and remain open for a focused amendment.
+**Status:** Proposed (not yet scheduled). Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. **The S3 backend is opt-in; the LocalFS backend remains the default and only production path.** This step exists to keep the `ObjectStore` abstraction honest (exercised by a second backend) and to unblock an opt-in dev-container path against RustFS/Garage/R2.
 **Step in build order:** 8 of 9
 **Depends on:** Step 3 (`layersense_storage` + `LocalFSObjectStore`) merged and stable; Steps 4–7 merged (the key layout and artifact-serving routes must be in their final post-Step-4 shape before this lands)
 **Unblocks:** Step 9 (OpenCode-style agentic runtime, speculative); hosted deployment; multi-machine rendering
+
+**Amendment (2026-05-22):** Default serving changed to proxy-bytes (decision #17). Redirect is opt-in behind LAYERSENSE_S3_DIRECT_SERVE. SigV4 verification deferred to opt-in enablement. Contract leak eliminated. Per audit findings 8.1-8.2.
 
 ---
 
@@ -25,8 +27,8 @@ For a single-developer local workflow, `LocalFSObjectStore` is indefinitely suff
 ### In scope
 
 1. `S3ObjectStore` class implementing the `ObjectStore` protocol from `layersense_storage`, configured via environment variables, working against any S3-compatible endpoint.
-2. `prefers_redirect` method added to the `ObjectStore` protocol; `LocalFSObjectStore` returns `False`, `S3ObjectStore` returns `True`.
-3. Controller artifact-serving routes (`/artifacts/by-hash/...`, `/artifacts/scenes/...`) branch on `prefers_redirect`: S3 path returns `RedirectResponse` to a presigned URL; local path keeps the existing streaming `FileResponse`.
+2. `prefers_redirect` remains a future opt-in check for direct S3 serving behind `LAYERSENSE_S3_DIRECT_SERVE=true`; default artifact serving always proxies bytes.
+3. Controller artifact-serving routes (`/artifacts/by-hash/...`, `/artifacts/scenes/...`) return `HTTP 200` with bytes for both LocalFS and S3 by default.
 4. Config switch `LAYERSENSE_OBJECT_STORE_BACKEND=local|s3` defaulting to `local`. No behavior change unless explicitly set to `s3`.
 5. New S3-related config fields: `LAYERSENSE_S3_ENDPOINT_URL`, `LAYERSENSE_S3_ACCESS_KEY`, `LAYERSENSE_S3_SECRET_KEY`, `LAYERSENSE_S3_BUCKET`, `LAYERSENSE_S3_PRESIGNED_URL_TTL_SECONDS`.
 6. Compose service for RustFS (design-time reference backend) as an opt-in dev/test target.
@@ -131,10 +133,10 @@ def url_for(self, key: str) -> str:
     )
 
 def prefers_redirect(self) -> bool:
-    return True
+    return settings.s3_direct_serve
 ```
 
-`LocalFSObjectStore.url_for` continues to return the absolute filesystem path string (unchanged from Step 3). `LocalFSObjectStore.prefers_redirect` returns `False`.
+`LocalFSObjectStore.url_for` continues to return the absolute filesystem path string (unchanged from Step 3). `LocalFSObjectStore.prefers_redirect` returns `False`. `S3ObjectStore.prefers_redirect` only returns `True` when the future opt-in `LAYERSENSE_S3_DIRECT_SERVE=true` flag is enabled.
 
 **Protocol addition:** `prefers_redirect` is added to the `ObjectStore` Protocol with a default implementation returning `False`. This is a non-breaking addition — existing `LocalFSObjectStore` gets the method added explicitly; any future impl that doesn't override it defaults to `False` (safe).
 
@@ -173,33 +175,26 @@ class ObjectInfo:
 
 ---
 
-### Route changes: `RedirectResponse` for presigned URLs
+### Route changes: proxy bytes by default
 
-The controller's artifact-serving routes currently call `ObjectStore.open(key)` and return a `FileResponse` or a streaming response. After this step they branch:
+**Serving strategy (design decision #17):** The controller always proxies artifact bytes (HTTP 200). No 302 redirect to presigned URLs by default. A future opt-in flag `LAYERSENSE_S3_DIRECT_SERVE=true` can enable redirects once SigV4 host-signing is verified for the chosen backend. This eliminates the redirect-vs-stream contract leak — all clients always see 200 with bytes, regardless of storage backend.
+
+The controller's artifact-serving routes call `ObjectStore.open(key)` and return a streaming response:
 
 ```python
 # layersense_controller/src/layersense_controller/router.py (sketch)
 
-async def serve_artifact(key: str, object_store: ObjectStore) -> Response:
-    if object_store.prefers_redirect():
-        url = object_store.url_for(key)   # presigned URL
-        return RedirectResponse(url=url, status_code=302)
-    else:
-        info = object_store.head(key)
-        if info is None:
-            raise HTTPException(status_code=404)
-        return StreamingResponse(
-            object_store.open(key),
-            media_type=info.content_type,
-            headers={"Content-Length": str(info.size)},
-        )
+async def serve_artifact(key: str, store: ObjectStore) -> Response:
+    # Always proxy bytes (decision #17). Single contract: HTTP 200.
+    stream = await run_in_threadpool(store.open, key)
+    return StreamingResponse(stream, media_type=_content_type(key))
 ```
 
-This helper is extracted and shared by all artifact routes (`/artifacts/by-hash/{hash}/preview`, `/artifacts/by-hash/{hash}/final`, `/artifacts/scenes/{scene_uuid}`, etc.) to avoid duplicating the branch.
+This helper is extracted and shared by all artifact routes (`/artifacts/by-hash/{hash}/preview`, `/artifacts/by-hash/{hash}/final`, `/artifacts/scenes/{scene_uuid}`, etc.).
 
-**`302` vs `307`:** Use `302 Found`. The browser will follow it with a `GET` regardless of the original method. `307` is semantically more correct for method-preserving redirects but all artifact routes are `GET`-only, so `302` is fine and more widely understood.
+`prefers_redirect()` is no longer part of the default route contract. It may be reintroduced as an opt-in branch only when `LAYERSENSE_S3_DIRECT_SERVE=true` and SigV4 host-signing has been verified for the configured backend.
 
-**CORS complication (see "Key design questions" below):** when the browser fetches an mp4 from a presigned S3 URL, the origin of that URL differs from the controller's origin. The bucket must have a CORS policy permitting `GET` from the frontend's origin. Document the required policy in `docs/ops/s3-bucket-setup.md` (new file, created in this step). For local dev with RustFS in compose, the presigned URL will contain `http://rustfs:9000/...` — a hostname the browser cannot resolve. See the "Local dev CORS / hostname rewrite" subsection below.
+**CORS note:** because the controller proxies bytes by default, browser clients never fetch from the S3 origin and no bucket CORS policy is required for default Step 8 behavior. CORS documentation is only needed for future `LAYERSENSE_S3_DIRECT_SERVE=true` adoption.
 
 ---
 
@@ -209,11 +204,11 @@ When running the full stack in compose with RustFS, the controller generates pre
 
 **Options:**
 
-1. **Controller proxies the artifact** (ignore `prefers_redirect` in local-dev S3 mode): add a `LAYERSENSE_S3_PUBLIC_ENDPOINT_URL` setting. If set, the controller rewrites the presigned URL's host to this public endpoint before redirecting. In compose, set `LAYERSENSE_S3_PUBLIC_ENDPOINT_URL=http://localhost:9000` and expose RustFS port 9000 to the host. The presigned URL is generated against the internal endpoint (for auth), then the host portion is rewritten to the public endpoint before the `RedirectResponse` is issued.
+1. **Controller redirects to a rewritten presigned URL**: add a `LAYERSENSE_S3_PUBLIC_ENDPOINT_URL` setting. If set, the controller rewrites the presigned URL's host to this public endpoint before redirecting. In compose, set `LAYERSENSE_S3_PUBLIC_ENDPOINT_URL=http://localhost:9000` and expose RustFS port 9000 to the host. The presigned URL is generated against the internal endpoint (for auth), then the host portion is rewritten to the public endpoint before the `RedirectResponse` is issued.
 
 2. **Controller proxies the bytes** (never redirect in local-dev S3 mode): add a `LAYERSENSE_S3_FORCE_PROXY=true` env var that makes `prefers_redirect()` return `False` even for S3, causing the controller to stream bytes from S3 to the browser. Simpler for local dev; loses the redirect optimization.
 
-**Recommendation:** Option 1 (host rewrite via `LAYERSENSE_S3_PUBLIC_ENDPOINT_URL`). It preserves the redirect path in production while making local dev work without a proxy. The rewrite is a simple `urllib.parse.urlparse` + `_replace(netloc=public_netloc)` on the presigned URL string. Document that the presigned URL's signature covers the path and query, not the host, so the rewrite does not invalidate the signature for most S3-compatible backends (verify this for RustFS specifically before shipping).
+**Recommendation:** Default to proxy-bytes (design decision #17). The host-rewrite redirect path is deferred and may only be enabled behind `LAYERSENSE_S3_DIRECT_SERVE=true` after verifying that the chosen backend's SigV4 implementation allows the intended public-host serving model.
 
 **CORS bucket policy** (for hosted deployment, not local dev):
 
@@ -229,7 +224,7 @@ When running the full stack in compose with RustFS, the controller generates pre
 ]
 ```
 
-For local dev with the host-rewrite approach, CORS is not needed because the browser fetches from `http://localhost:9000` (same-origin as the compose-exposed port, or at least not cross-origin in the way that triggers CORS preflight for video playback).
+For default proxy-byte serving, CORS is not needed because the browser fetches from the controller origin.
 
 ---
 
@@ -380,7 +375,7 @@ The CLI module is minimal: `argparse` or `click`, one subcommand `migrate-local-
 
 | File | Change |
 |---|---|
-| `src/layersense_storage/object_store.py` | Add `prefers_redirect()` to `ObjectStore` Protocol (default `False`); add `S3ObjectStore` class; update `LocalFSObjectStore` with explicit `prefers_redirect` returning `False` |
+| `src/layersense_storage/object_store.py` | Add `S3ObjectStore` class; keep `prefers_redirect()` as an opt-in direct-serve capability gated by `LAYERSENSE_S3_DIRECT_SERVE` if implemented |
 | `src/layersense_storage/config.py` | Add S3 settings fields; add `make_object_store` factory |
 | `src/layersense_storage/errors.py` | No change (existing `ObjectNotFoundError`, `ObjectStoreError` are sufficient) |
 | `src/layersense_storage/cli.py` | New — migration utility entry point |
@@ -394,10 +389,10 @@ The CLI module is minimal: `argparse` or `click`, one subcommand `migrate-local-
 
 | File | Change |
 |---|---|
-| `src/layersense_controller/router.py` | Extract `serve_artifact` helper; branch on `prefers_redirect()`; return `RedirectResponse` for S3, `StreamingResponse` for local |
+| `src/layersense_controller/router.py` | Extract `serve_artifact` helper; always return `StreamingResponse` with proxied bytes by default |
 | `src/layersense_controller/dependencies.py` (or equivalent DI module) | Use `make_object_store(settings)` instead of directly instantiating `LocalFSObjectStore` |
 | `src/layersense_controller/config.py` | Import `StorageSettings` from `layersense_storage`; no new fields needed here (all S3 config lives in `layersense_storage`) |
-| `tests/integration/test_router_api.py` | Add test: `/artifacts/by-hash/...` returns `302` when backend is S3 (moto fixture) |
+| `tests/integration/test_router_api.py` | Add test: `/artifacts/by-hash/...` returns `200` with bytes when backend is S3 (moto fixture). `302` route tests move to an opt-in `LAYERSENSE_S3_DIRECT_SERVE=true` test group if direct serving is implemented. |
 
 ### Compose
 
@@ -437,7 +432,7 @@ All backed by `moto` (`@mock_aws` decorator). No real S3 endpoint required.
 - `delete` removes key; subsequent `head` returns `None`; `get` raises `ObjectNotFoundError`.
 - `list_prefix` returns all keys under prefix; handles pagination (> 1000 objects via moto).
 - `url_for` returns a string containing the bucket name and key; does not raise.
-- `prefers_redirect` returns `True`.
+- `prefers_redirect` returns `False` by default, or only returns `True` when `LAYERSENSE_S3_DIRECT_SERVE=true` is explicitly enabled.
 - `ClientError` with non-404 code raises `ObjectStoreError`, not `ObjectNotFoundError`.
 - `make_object_store(settings)` with `backend="local"` returns `LocalFSObjectStore`.
 - `make_object_store(settings)` with `backend="s3"` and all fields set returns `S3ObjectStore`.
@@ -474,13 +469,13 @@ This suite is the contract guarantee: if both backends pass, callers can switch 
 ### Integration tests — controller routes (`layersense_controller`)
 
 - `GET /artifacts/by-hash/{hash}/preview` with `LocalFSObjectStore`: returns `200` with `Content-Type: video/mp4` and correct bytes (existing test, unchanged).
-- `GET /artifacts/by-hash/{hash}/preview` with `S3ObjectStore + moto`: returns `302` with `Location` header containing the bucket name and key. Verify the redirect URL is a valid presigned URL string.
+- `GET /artifacts/by-hash/{hash}/preview` with `S3ObjectStore + moto`: returns `200` with `Content-Type: video/mp4` and correct bytes.
 - `GET /artifacts/by-hash/{hash}/preview` with S3 backend and missing key: returns `404` (the controller must check `head` before redirecting, or handle the presigned URL generation for a missing key gracefully — see risk table).
-- `GET /artifacts/scenes/{scene_uuid}` with S3 backend: returns `302`.
+- `GET /artifacts/scenes/{scene_uuid}` with S3 backend: returns `200` with bytes. `302` tests move to an opt-in `LAYERSENSE_S3_DIRECT_SERVE=true` test group.
 
 ### e2e (opt-in)
 
-`just test-e2e-s3` runs the full compose stack with RustFS. The e2e test suite (`tests/e2e/test_dev_stack_e2e.py`) is reused without modification — the behavior from the browser's perspective is identical (it follows the redirect). The test runner must follow redirects (verify `httpx` / `requests` client is configured to do so, or assert on the `302` + `Location` header explicitly).
+`just test-e2e-s3` runs the full compose stack with RustFS. The e2e test suite (`tests/e2e/test_dev_stack_e2e.py`) is reused without modification — the behavior from the browser's perspective is identical because the controller returns `200` with bytes for both LocalFS and S3.
 
 This recipe is **not** part of the default `just test-e2e`. It is opt-in, documented in the justfile with a comment explaining the RustFS dependency.
 
@@ -510,14 +505,14 @@ This recipe is **not** part of the default `just test-e2e`. It is opt-in, docume
 | Risk | Mitigation |
 |---|---|
 | **Presigned URL TTL too short** — browser starts playback, URL expires mid-stream | Default TTL is 1 hour. For a single-user local workflow, renders are fetched immediately after completion; 1 hour is ample. For hosted deployment, increase TTL or implement URL refresh. Document the tradeoff in `docs/ops/s3-bucket-setup.md`. |
-| **CORS misconfiguration** — browser blocks mp4 fetch from presigned URL origin | Document the required bucket CORS policy in `docs/ops/s3-bucket-setup.md`. For local dev, use the `LAYERSENSE_S3_PUBLIC_ENDPOINT_URL` host-rewrite to avoid cross-origin issues. |
-| **Presigned URL for missing key** — `generate_presigned_url` succeeds even if the key doesn't exist; the browser gets a 403/404 from S3 instead of a clean 404 from the controller | Always call `head(key)` before generating the presigned URL. If `head` returns `None`, return `404` from the controller. This adds one extra S3 API call per artifact serve, but it's cheap and gives clean error semantics. |
+| **CORS misconfiguration** — browser blocks mp4 fetch from presigned URL origin | Not applicable to default proxy-byte serving. Document CORS only for future `LAYERSENSE_S3_DIRECT_SERVE=true` adoption. |
+| **Presigned URL for missing key** — `generate_presigned_url` succeeds even if the key doesn't exist; the browser gets a 403/404 from S3 instead of a clean 404 from the controller | Deferred to opt-in direct serving. Default proxy-byte serving opens the object and maps missing keys to controller-owned `404` behavior. |
 | **Backend SDK API drift** — `boto3` API changes or a specific S3-compatible backend deviates from the S3 API | Pin `boto3` to a minor version range in `pyproject.toml`. The protocol-conformance test suite catches behavioral regressions. For backend-specific quirks (e.g., RustFS ETag format), document them in `docs/ops/s3-bucket-setup.md`. |
 | **Cost surprises on cloud backends** — presigned URL generation is free, but `GET` requests and egress are billed | Not a concern for local dev (RustFS). For hosted deployment, document the cost model of the chosen backend. R2 has zero egress; S3 does not. |
 | **Etag semantics divergence** — code that compares etags across backends will silently produce wrong results | `ObjectInfo.etag` is documented as opaque. The migration utility uses size-based skip, not etag comparison. Add a lint-level comment to `ObjectInfo` and a note in the protocol docstring. |
 | **Migration utility data loss** — a bug in the migration utility could overwrite or skip objects | The utility is idempotent (skip if size matches) and requires `--confirm`. Dry-run mode (default without `--confirm`) prints what would be copied. Recommend running dry-run first and inspecting output before `--confirm`. |
 | **RustFS image availability** — `rustfs/rustfs:latest` may not be available or may break on a new release | Pin to a specific image digest in `docker-compose.s3.yml`. Document the pinned version and the process for updating it. |
-| **Presigned URL host rewrite invalidates signature** — some backends include the host in the signed string | Verify for RustFS specifically. If host is included in the signature, the rewrite approach breaks and Option 2 (proxy bytes) must be used instead. Document the finding in `docs/ops/s3-bucket-setup.md`. |
+| **Presigned URL host rewrite invalidates signature** — some backends include the host in the signed string | Deferred, not blocking. Verify only before enabling `LAYERSENSE_S3_DIRECT_SERVE=true`; default Step 8 proxy-byte serving does not depend on host rewrite. |
 | **`put_stream` with non-seekable stream** — `boto3`'s `upload_fileobj` requires a seekable stream for multipart retry | Wrap non-seekable streams in a `BytesIO` buffer for objects above the multipart threshold, or disable multipart retry. For the controller's use case (writing Manim output files), the source is always a real file handle (seekable). Document the constraint. |
 
 ---
@@ -554,7 +549,7 @@ Surface these explicitly; push back before implementation begins.
 
 6. **Bucket auto-creation at controller startup.** The controller checks for the configured bucket on startup and creates it if absent (using `create_bucket` with appropriate region config). This avoids a separate init container in compose. → *Push back if you prefer explicit bucket provisioning.*
 
-7. **`LAYERSENSE_S3_PUBLIC_ENDPOINT_URL` host-rewrite approach for local dev.** Presigned URLs are generated against the internal compose hostname, then the host is rewritten to the public endpoint before the `RedirectResponse` is issued. This assumes the S3-compatible backend does not include the host in the signed string. → *Push back if RustFS includes the host in its signature (requires verification).*
+7. **Proxy-byte serving by default.** Presigned URL host rewrite is not part of the default Step 8 path. SigV4 host-signing verification is deferred until someone opts into `LAYERSENSE_S3_DIRECT_SERVE=true`.
 
 8. **No changes to the default `docker-compose.yml`.** The S3 overlay is strictly additive. Running `just docker` continues to use `LocalFSObjectStore` with no S3 services. → *This is firm; push back only if you want S3 as the default dev stack.*
 
