@@ -1,11 +1,9 @@
 import asyncio
 from importlib.resources import as_file, files
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
-
-from layersense_controller.config import settings
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 Resolution = Annotated[str, StringConstraints(pattern=r"^\d+,\d+$")]
@@ -34,51 +32,6 @@ def _config_resource(render_kind: str):
     return as_file(files("layersense_controller.resources").joinpath(f"manim-{render_kind}.cfg"))
 
 
-def _scene_path_relative_to_scenes_dir(scene_path: Path) -> Path:
-    try:
-        return scene_path.resolve().relative_to(settings.scenes_dir.resolve())
-    except ValueError as exc:
-        raise RenderError(
-            f"scene path must be inside configured scenes_dir: {settings.scenes_dir}",
-            "",
-        ) from exc
-
-
-def _scene_layout_parts(scene_path: Path) -> tuple[str, tuple[str, ...], str]:
-    relative_scene = _scene_path_relative_to_scenes_dir(scene_path)
-
-    parent_parts = relative_scene.parent.parts
-    if not parent_parts:
-        project = "_root"
-        nested_parts: tuple[str, ...] = ()
-    else:
-        project = parent_parts[0]
-        nested_parts = parent_parts[1:]
-
-    return project, nested_parts, relative_scene.stem
-
-
-def _raw_output_path(scene_path: Path, render_kind: str) -> Path:
-    project, nested_parts, scene_name = _scene_layout_parts(scene_path)
-    return (
-        settings.artifacts_dir
-        / "scenes"
-        / project
-        / render_kind
-        / Path(*nested_parts)
-        / f"{scene_name}_{render_kind}.mp4"
-    )
-
-
-def _output_file_path(scene_path: Path, render_kind: str) -> Path:
-    project, nested_parts, scene_name = _scene_layout_parts(scene_path)
-    return Path(project, render_kind, *nested_parts, f"{scene_name}_{render_kind}")
-
-
-def _media_dir_path() -> Path:
-    return settings.artifacts_dir / "scenes"
-
-
 def _cli_args(cli_flags: CLIFlags | None) -> list[str]:
     if cli_flags is None:
         return []
@@ -97,14 +50,26 @@ def _cli_args(cli_flags: CLIFlags | None) -> list[str]:
     return args
 
 
+def _output_path(media_dir_path: Path, render_kind: str) -> Path:
+    candidates = [
+        media_dir_path / f"{render_kind}.mp4",
+        media_dir_path / "videos" / "scene" / "1080p60" / f"{render_kind}.mp4",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
 async def _run_manim(
-    scene_path: Path, render_kind: str, cli_flags: CLIFlags | None = None
+    source_file_path: Path, render_kind: str, cli_flags: CLIFlags | None = None
 ) -> Path:
-    raw_output_path = _raw_output_path(scene_path, render_kind)
-    output_file_path = _output_file_path(scene_path, render_kind)
-    media_dir_path = _media_dir_path()
-    raw_output_path.parent.mkdir(parents=True, exist_ok=True)
+    media_dir_path = source_file_path.parent / "media"
+    raw_output_path = media_dir_path / f"{render_kind}.mp4"
+    nested_output_path = media_dir_path / "videos" / "scene" / "1080p60" / f"{render_kind}.mp4"
+    media_dir_path.mkdir(parents=True, exist_ok=True)
     raw_output_path.unlink(missing_ok=True)
+    nested_output_path.unlink(missing_ok=True)
 
     try:
         with _config_resource(render_kind) as config_path:
@@ -118,8 +83,8 @@ async def _run_manim(
                 str(media_dir_path),
                 "--format=mp4",
                 "--output_file",
-                output_file_path.as_posix(),
-                str(scene_path),
+                render_kind,
+                str(source_file_path),
                 "GeneratedScene",
                 cwd=PACKAGE_ROOT,
                 stdout=asyncio.subprocess.PIPE,
@@ -131,20 +96,21 @@ async def _run_manim(
     if process.returncode != 0:
         raise RenderError(f"manim exited with code {process.returncode}", stderr.decode())
 
-    if not raw_output_path.exists():
+    output_path = _output_path(media_dir_path, render_kind)
+    if not output_path.exists():
         output = stdout.decode() + "\n" + stderr.decode()
         raise RenderError("Could not locate rendered .mp4 output.", output)
 
-    return raw_output_path
+    return output_path
 
 
 async def render_preview(
-    scene_path: Path, content_hash: str, cli_flags: CLIFlags | None = None
+    source_file_path: Path, content_hash: str, cli_flags: CLIFlags | None = None
 ) -> Path:
-    return await _run_manim(scene_path, "preview", cli_flags)
+    return await _run_manim(source_file_path, "preview", cli_flags)
 
 
 async def render_final(
-    scene_path: Path, content_hash: str, cli_flags: CLIFlags | None = None
+    source_file_path: Path, content_hash: str, cli_flags: CLIFlags | None = None
 ) -> Path:
-    return await _run_manim(scene_path, "final", cli_flags)
+    return await _run_manim(source_file_path, "final", cli_flags)

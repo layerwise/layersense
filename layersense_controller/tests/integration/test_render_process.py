@@ -3,7 +3,6 @@ from pathlib import Path
 
 import layersense_controller.render as render_module
 import pytest
-from layersense_controller.config import settings
 from layersense_controller.render import CLIFlags, RenderError, render_final, render_preview
 
 pytestmark = [pytest.mark.integration, pytest.mark.ai]
@@ -43,13 +42,8 @@ def test_cli_flags_include_all_supported_options() -> None:
 @pytest.mark.asyncio
 async def test_run_manim_reports_process_start_failure(tmp_path, monkeypatch) -> None:
     """Raise RenderError when the Manim subprocess cannot be started."""
-    scenes_dir = tmp_path / "scenes"
-    artifacts_dir = tmp_path / "artifacts"
-    scenes_dir.mkdir()
-    scene_path = scenes_dir / "scene.py"
+    scene_path = tmp_path / "scene.py"
     scene_path.write_text("print('demo')\n")
-    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
-    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
 
     async def fail_to_start(*args: object, **kwargs: object) -> object:
         raise OSError("missing manim")

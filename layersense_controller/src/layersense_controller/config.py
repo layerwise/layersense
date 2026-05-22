@@ -5,8 +5,8 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    scenes_dir: Path = Path("./layersense_artifacts/code")
-    artifacts_dir: Path = Path("./layersense_artifacts")
+    storage_root: Path = Path("./layersense_artifacts/storage")
+    render_workdir: Path = Path("/tmp/layersense-renders")
     host: str = "0.0.0.0"
     port: int = 8001
     redis_url: AnyUrl = AnyUrl("redis://localhost:6379/0")
