@@ -1,6 +1,4 @@
-import json
-import os
-from pathlib import Path
+import hashlib
 from uuid import uuid4
 
 from agents import Runner, set_tracing_disabled
@@ -14,12 +12,10 @@ from layersense_agent.utils import EXAMPLE_JSON
 router = APIRouter()
 set_tracing_disabled(True)
 
-LAYERSENSE_SCENES_DIR = Path(os.getenv("LAYERSENSE_SCENES_DIR", "./layersense_artifacts/code"))
-
 
 @router.post("/animation", response_model=AnimationCreatedResponse)
 async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
-    """Translate an Excalidraw canvas + prompt into a Manim scene file."""
+    """Translate an Excalidraw canvas + prompt into Manim scene source."""
     conversation_id = str(uuid4())
 
     context = ManimAgentContext(json_example=EXAMPLE_JSON)
@@ -41,11 +37,8 @@ async def create_animation(inputs: AnimationInputs) -> AnimationCreatedResponse:
         background_color,
     )
 
-    LAYERSENSE_SCENES_DIR.mkdir(parents=True, exist_ok=True)
-    scene_path = LAYERSENSE_SCENES_DIR / f"generated_{conversation_id}.py"
-    scene_path.write_text(scene_code)
-
     return AnimationCreatedResponse(
         conversation_id=conversation_id,
-        scene_path=str(scene_path),
+        source_code=scene_code,
+        content_hash=hashlib.sha256(scene_code.encode()).hexdigest(),
     )

@@ -9,7 +9,8 @@ class ConversationCreatedResponse(BaseModel):
 
 class AnimationCreatedResponse(BaseModel):
     conversation_id: str = Field(description="Unique identifier for this animation session.")
-    scene_path: str = Field(description="Absolute path to the generated Manim scene file.")
+    source_code: str = Field(description="Generated Manim scene source code.")
+    content_hash: str = Field(description="SHA-256 hash of the generated source code.")
 
 
 class AnimationInputs(BaseModel):

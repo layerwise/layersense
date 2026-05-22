@@ -1,5 +1,5 @@
+import hashlib
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,6 +13,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.ai]
 FAKE_CODE = (
     "from manim import *\n\nclass GeneratedScene(Scene):\n    def construct(self):\n        pass\n"
 )
+EXPECTED_CODE = FAKE_CODE.strip()
 SCENE_PAYLOAD = {
     "elements": [
         {
@@ -36,153 +37,82 @@ SCENE_PAYLOAD = {
 }
 
 
-def assert_animation_created(response_json: dict[str, str]) -> Path:
-    assert "conversation_id" in response_json
-    assert "scene_path" in response_json
-    scene_path = Path(response_json["scene_path"])
-    assert scene_path.exists()
-    assert "GeneratedScene" in scene_path.read_text()
-    return scene_path
-
-
 @pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("LAYERSENSE_SCENES_DIR", str(tmp_path))
+def client():
     mock_result = MagicMock()
     mock_result.final_output = FAKE_CODE
     with patch("layersense_agent.api.v1.endpoints.animate_scene.Runner") as mock_runner:
         mock_runner.run = AsyncMock(return_value=mock_result)
-        with patch(
-            "layersense_agent.api.v1.endpoints.animate_scene.LAYERSENSE_SCENES_DIR", tmp_path
-        ):
-            with TestClient(app) as c:
-                yield c, tmp_path, mock_runner
+        with TestClient(app) as c:
+            yield c, mock_runner
 
 
-def test_create_animation_writes_file(client):
-    """Write the generated Manim scene file for valid animation requests."""
-    c, tmp_path, _ = client
-    payload = {"prompt": "animate a circle", "scene": SCENE_PAYLOAD}
-    response = c.post("/api/v1/animation", json=payload)
+def test_create_animation_returns_source_and_hash(client) -> None:
+    """Return generated source bytes instead of writing a scene file."""
+    c, _ = client
+
+    response = c.post("/api/v1/animation", json={"prompt": "animate", "scene": SCENE_PAYLOAD})
+
     assert response.status_code == 200
-    assert_animation_created(response.json())
+    payload = response.json()
+    assert payload["source_code"] == EXPECTED_CODE
+    assert payload["content_hash"] == hashlib.sha256(EXPECTED_CODE.encode()).hexdigest()
+    assert "scene_path" not in payload
 
 
-def test_create_animation_injects_background_color_into_written_scene_file(client):
-    """Persist background color in the generated scene source when the canvas declares one."""
-    c, _, _ = client
-    payload = {
-        "prompt": "animate a circle",
-        "scene": {
-            **SCENE_PAYLOAD,
-            "appState": {"viewBackgroundColor": "#334455"},
+def test_create_animation_injects_background_color_into_source(client) -> None:
+    """Preserve background color in the returned generated scene source."""
+    c, _ = client
+
+    response = c.post(
+        "/api/v1/animation",
+        json={
+            "prompt": "animate",
+            "scene": {**SCENE_PAYLOAD, "appState": {"viewBackgroundColor": "#334455"}},
         },
-    }
-
-    response = c.post("/api/v1/animation", json=payload)
-
-    assert response.status_code == 200
-    scene_path = assert_animation_created(response.json())
-    assert (
-        scene_path.read_text()
-        == 'from manim import config\nconfig.background_color = "#334455"\n\n' + FAKE_CODE
     )
 
-
-def test_create_animation_writes_file_from_scene_payload(client):
-    """Append the normalized scene payload to the model prompt."""
-    c, tmp_path, mock_runner = client
-    payload = {"prompt": "animate a circle", "scene": SCENE_PAYLOAD}
-    response = c.post("/api/v1/animation", json=payload)
+    source_code = response.json()["source_code"]
     assert response.status_code == 200
-    assert_animation_created(response.json())
+    assert (
+        source_code
+        == 'from manim import config\nconfig.background_color = "#334455"\n\n' + FAKE_CODE
+    )
+    assert response.json()["content_hash"] == hashlib.sha256(source_code.encode()).hexdigest()
+
+
+def test_create_animation_appends_normalized_scene_to_generation_prompt(client) -> None:
+    """Append the normalized scene payload to the model prompt."""
+    c, mock_runner = client
+
+    response = c.post("/api/v1/animation", json={"prompt": "animate", "scene": SCENE_PAYLOAD})
+
+    assert response.status_code == 200
     runner_prompt = mock_runner.run.await_args.args[1]
     prompt_prefix, serialized_scene = runner_prompt.split("\n", maxsplit=1)
-    assert prompt_prefix == "animate a circle"
+    assert prompt_prefix == "animate"
     assert json.loads(serialized_scene) == normalize_scene(SCENE_PAYLOAD).model_dump()
 
 
-def test_create_animation_normalizes_scene_before_generation(client):
-    """Normalize the scene before serializing it into the model prompt."""
-    c, tmp_path, mock_runner = client
-    payload = {"prompt": "animate a circle", "scene": SCENE_PAYLOAD}
-
-    with patch(
-        "layersense_agent.api.v1.endpoints.animate_scene.normalize_scene"
-    ) as normalize_mock:
-        normalize_mock.return_value.appState.viewBackgroundColor = None
-        normalize_mock.return_value.model_dump_json.return_value = (
-            '{"elements":[],"appState":{},"files":{}}'
-        )
-
-        response = c.post("/api/v1/animation", json=payload)
-
-    assert response.status_code == 200
-    assert_animation_created(response.json())
-    normalize_mock.assert_called_once_with(payload["scene"])
-    normalize_mock.return_value.model_dump_json.assert_called_once_with()
-    runner_prompt = mock_runner.run.await_args.args[1]
-    assert '{"elements":[],"appState":{},"files":{}}' in runner_prompt
-
-
-def test_create_animation_includes_background_color_in_generation_prompt(client):
-    """Include the canvas background color in the generated scene prompt payload."""
-    c, _, mock_runner = client
-    payload = {
-        "prompt": "animate a circle",
-        "scene": {
-            **SCENE_PAYLOAD,
-            "appState": {"viewBackgroundColor": "#334455"},
-        },
-    }
-
-    response = c.post("/api/v1/animation", json=payload)
-
-    assert response.status_code == 200
-    runner_prompt = mock_runner.run.await_args.args[1]
-    _, serialized_scene = runner_prompt.split("\n", maxsplit=1)
-    assert json.loads(serialized_scene) == normalize_scene(payload["scene"]).model_dump()
-
-
-def test_create_animation_does_not_return_render_options(client):
-    """Keep controller-specific render settings out of the animation response."""
-    c, _, _ = client
-    payload = {
-        "prompt": "animate a circle",
-        "scene": {
-            **SCENE_PAYLOAD,
-            "appState": {"viewBackgroundColor": "#334455"},
-        },
-    }
-
-    response = c.post("/api/v1/animation", json=payload)
-
-    assert response.status_code == 200
-    assert "render_options" not in response.json()
-
-
-def test_create_animation_rejects_effectively_empty_scene(client):
+def test_create_animation_rejects_effectively_empty_scene(client) -> None:
     """Reject scene payloads that normalize to no supported elements."""
-    c, _, mock_runner = client
-    payload = {
-        "prompt": "animate a circle",
-        "scene": {"elements": [], "appState": {}, "files": {}},
-    }
+    c, mock_runner = client
 
-    response = c.post("/api/v1/animation", json=payload)
+    response = c.post(
+        "/api/v1/animation",
+        json={"prompt": "animate", "scene": {"elements": [], "appState": {}, "files": {}}},
+    )
 
     assert response.status_code == 422
     assert response.json() == {"detail": "Scene must contain at least one supported element."}
     mock_runner.run.assert_not_awaited()
 
 
-def test_strip_code_fences_removes_fences():
+def test_strip_code_fences_removes_fences() -> None:
     """Strip fenced markdown wrappers from model output code."""
-    wrapped = "```python\nfrom manim import *\n```"
-    assert strip_code_fences(wrapped) == "from manim import *"
+    assert strip_code_fences("```python\nfrom manim import *\n```") == "from manim import *"
 
 
-def test_strip_code_fences_passthrough():
+def test_strip_code_fences_passthrough() -> None:
     """Leave unfenced code output unchanged."""
-    plain = "from manim import *"
-    assert strip_code_fences(plain) == "from manim import *"
+    assert strip_code_fences("from manim import *") == "from manim import *"
