@@ -44,6 +44,7 @@ services:
     environment:
       LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
       LAYERSENSE_ARTIFACTS_DIR: /layersense_artifacts
+      LAYERSENSE_DB_PATH: /layersense_artifacts/db/layersense.sqlite
       LAYERSENSE_REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis
@@ -60,6 +61,7 @@ services:
     environment:
       LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
       LAYERSENSE_ARTIFACTS_DIR: /layersense_artifacts
+      LAYERSENSE_DB_PATH: /layersense_artifacts/db/layersense.sqlite
       LAYERSENSE_REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis

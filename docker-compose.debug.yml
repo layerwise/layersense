@@ -51,11 +51,12 @@ services:
         "8001",
       ]
     environment:
-      PYTHONPATH: /app/layersense_controller/src:/app/layersense_domain/src
+      PYTHONPATH: /app/layersense_controller/src:/app/layersense_persistence/src:/app/layersense_domain/src
     ports:
       - "5679:5679"
     volumes:
       - ./layersense_controller/src:/app/layersense_controller/src
+      - ./layersense_persistence/src:/app/layersense_persistence/src
       - ./layersense_domain/src:/app/layersense_domain/src
 
   controller-worker:
@@ -79,9 +80,10 @@ services:
         "1",
       ]
     environment:
-      PYTHONPATH: /app/layersense_controller/src:/app/layersense_domain/src
+      PYTHONPATH: /app/layersense_controller/src:/app/layersense_persistence/src:/app/layersense_domain/src
     ports:
       - "5680:5680"
     volumes:
       - ./layersense_controller/src:/app/layersense_controller/src
+      - ./layersense_persistence/src:/app/layersense_persistence/src
       - ./layersense_domain/src:/app/layersense_domain/src

@@ -19,6 +19,7 @@ dependencies = [
     "layersense_agent",
     "layersense_controller",
     "layersense_domain",
+    "layersense_persistence",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +41,7 @@ dev = [
     "pytest-recording==0.13.4",
     "requests==2.32.5",
     "fakeredis==2.31.0",
+    "basedpyright>=1.39.5",
 ]
 
 [project.urls]
@@ -52,9 +54,15 @@ dev = [
 layersense_agent = { workspace = true }
 layersense_controller = { workspace = true }
 layersense_domain = { workspace = true }
+layersense_persistence = { workspace = true }
 
 [tool.uv.workspace]
-members = ["layersense_agent", "layersense_controller", "layersense_domain"]
+members = [
+    "layersense_agent",
+    "layersense_controller",
+    "layersense_domain",
+    "layersense_persistence",
+]
 
 # ---- Tooling Configurations ----
 
@@ -106,7 +114,12 @@ warn_return_any = true
 omit = ["*/tests/*", "*/conftest.py", "*/__init__.py"]
 
 [tool.pytest.ini_options]
-testpaths = ["layersense_agent/tests", "layersense_controller/tests", "tests"]
+testpaths = [
+    "layersense_agent/tests",
+    "layersense_controller/tests",
+    "layersense_persistence/tests",
+    "tests",
+]
 minversion = "7.0"
 addopts = "-ra -q --asyncio-mode=auto --strict-markers"
 markers = [

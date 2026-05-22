@@ -30,6 +30,7 @@ _export-secrets:
 # Sync dependencies across all packages
 setup:
     uv sync --all-packages
+    just db_migrate
 
 # Start frontend dev server
 frontend-dev:
@@ -126,6 +127,16 @@ test_python_integration_refresh:
 test_python_e2e environment="puc4web":
     @echo "Python E2E Tests"
     uv run --all-packages pytest -m e2e
+
+db_migrate:
+    uv run --package layersense-persistence alembic -c layersense_persistence/alembic.ini upgrade head
+
+db_revision message:
+    uv run --package layersense-persistence alembic -c layersense_persistence/alembic.ini revision --autogenerate -m "{{message}}"
+
+db_reset:
+    rm -f ./layersense_artifacts/db/layersense.sqlite
+    just db_migrate
 
 # Run all tests (Python + frontend)
 test:
