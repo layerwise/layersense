@@ -99,6 +99,8 @@ test_python_integration_coverage:
     mkdir -p coverage
     just _test_python_integration_coverage_data coverage/.coverage
     COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage report
+    COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage json -o coverage/coverage.json
+    uv run --all-packages python scripts/enforce_module_coverage.py coverage/coverage.json --minimum 95
     COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage xml -o coverage/coverage.xml
     COVERAGE_FILE=coverage/.coverage uv run --all-packages python -m coverage html -d coverage/html
 

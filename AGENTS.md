@@ -42,6 +42,7 @@ Your operational philosophy: You are the hands; the human is the architect. Move
 - Full Python checks: `just test_python`
 - Python unit only: `just test_python_unit`
 - Python integration replay: `just test_python_integration`
+- Python integration coverage gate: `just test_python_integration_coverage` (95% minimum per reported runtime module)
 - Python integration cassette refresh: `just test_python_integration_refresh`
 - Live local-stack e2e: `just e2e`
 - Ephemeral compose full-stack run: `just test-e2e`
@@ -61,7 +62,7 @@ When running tests, always use at least `uv run pytest` but prefer `uv run --all
 
 ## Code Style
 
-When producing code, use modern Python and honour the existing code style. Use `pydantic`, `fastapi`, `openai-agents`, `tenacity`, `taskiq` (if necessary), type everything, refactor mercilessly, and write tests.Always run `just lint` and `just test` before claiming a task is done. Fix lint issues with `just format`.
+When producing code, use modern Python and honour the existing code style. Use `pydantic`, `fastapi`, `openai-agents`, `tenacity`, `taskiq` (if necessary), type everything, refactor mercilessly, and write tests.Always run `just lint`, `just test`, and for Python runtime changes `just test_python_integration_coverage` before claiming a task is done. Fix lint issues with `just format`.
 
 ## Your Workflow
 
@@ -106,6 +107,7 @@ than no docs.
 
 ### Autonomous linting and testing
 - Verify the codebase by running `just lint` and `just test` in the project or workspace root.
+- For Python runtime changes, also run `just test_python_integration_coverage` and keep every reported runtime module at or above 95% integration coverage.
 - Use `just e2e` when you need live-stack verification against the local running services.
 - Use `just test-e2e` when you need a reproducible assistant-friendly full-stack run that provisions its own ephemeral compose project.
 
