@@ -1,7 +1,5 @@
 import hashlib
 import json
-import multiprocessing
-import time
 from unittest.mock import ANY
 
 import pytest
@@ -15,21 +13,6 @@ from layersense_controller.cache import (
 from layersense_controller.config import settings
 
 pytestmark = [pytest.mark.unit, pytest.mark.ai]
-
-
-def _store_cached_artifacts_in_subprocess(artifacts_dir: str) -> None:
-    from pathlib import Path
-
-    from layersense_controller.cache import store_cached_artifacts
-    from layersense_controller.config import settings as child_settings
-
-    child_settings.artifacts_dir = Path(artifacts_dir)
-    store_cached_artifacts(
-        content_hash="hash-1",
-        scene_uuid="scene-123",
-        scene_path="code/generated_scene-123.py",
-        final="demo/final/scene.mp4",
-    )
 
 
 def test_hash_file_is_sha256(tmp_path):
@@ -218,33 +201,6 @@ def test_store_rejects_paths_outside_scenes_root(tmp_path, monkeypatch):
             scene_path="code/generated_scene-123.py",
             preview="../escape.mp4",
         )
-
-
-def test_store_waits_for_cache_lock(tmp_path, monkeypatch):
-    """Wait for the cache lock before updating the shared cache index."""
-    fcntl = pytest.importorskip("fcntl")
-    monkeypatch.setattr(settings, "artifacts_dir", tmp_path)
-
-    lock_path = tmp_path / "cache" / "index.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with lock_path.open("a+") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        process = multiprocessing.Process(
-            target=_store_cached_artifacts_in_subprocess,
-            args=(str(tmp_path),),
-        )
-        process.start()
-
-        time.sleep(0.2)
-        assert process.is_alive()
-
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-
-    process.join(timeout=5)
-
-    assert process.exitcode == 0
-    assert lookup_content_hash_for_scene("scene-123") == "hash-1"
 
 
 def test_corrupt_index_degrades_to_cache_miss(tmp_path, monkeypatch):

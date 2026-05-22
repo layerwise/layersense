@@ -170,6 +170,92 @@ def test_create_animation_persists_background_color_in_generated_scene_file(mock
     assert 'config.background_color = "#334455"' in Path(response.json()["scene_path"]).read_text()
 
 
+def test_create_animation_keeps_existing_background_assignment(tmp_path: Path) -> None:
+    """Avoid duplicating background color assignments already present in generated code."""
+    code = 'from manim import config\nconfig.background_color = "#334455"\n'
+    mock_result = MagicMock()
+    mock_result.final_output = code
+    with patch("layersense_agent.api.v1.endpoints.animate_scene.Runner") as mock_runner:
+        mock_runner.run = AsyncMock(return_value=mock_result)
+        with patch(
+            "layersense_agent.api.v1.endpoints.animate_scene.LAYERSENSE_SCENES_DIR", tmp_path
+        ):
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/v1/animation",
+                    json={
+                        "prompt": "Animate a square.",
+                        "scene": {**SCENE_PAYLOAD, "appState": {"viewBackgroundColor": "#334455"}},
+                    },
+                )
+
+    assert response.status_code == 200
+    assert Path(response.json()["scene_path"]).read_text() == code.strip()
+
+
+def test_create_animation_inserts_background_after_docstring_and_future_import(
+    tmp_path: Path,
+) -> None:
+    """Insert background configuration after module docstrings and future imports."""
+    mock_result = MagicMock()
+    mock_result.final_output = (
+        '"""Generated scene."""\n\n'
+        "from __future__ import annotations\n\n"
+        "from manim import Scene\n"
+    )
+    with patch("layersense_agent.api.v1.endpoints.animate_scene.Runner") as mock_runner:
+        mock_runner.run = AsyncMock(return_value=mock_result)
+        with patch(
+            "layersense_agent.api.v1.endpoints.animate_scene.LAYERSENSE_SCENES_DIR", tmp_path
+        ):
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/v1/animation",
+                    json={
+                        "prompt": "Animate a square.",
+                        "scene": {**SCENE_PAYLOAD, "appState": {"viewBackgroundColor": "#112233"}},
+                    },
+                )
+
+    assert response.status_code == 200
+    generated_lines = Path(response.json()["scene_path"]).read_text().splitlines()
+    assert generated_lines[:6] == [
+        '"""Generated scene."""',
+        "",
+        "from __future__ import annotations",
+        "",
+        "from manim import config",
+        'config.background_color = "#112233"',
+    ]
+
+
+def test_create_animation_inserts_background_at_top_for_invalid_python(
+    tmp_path: Path,
+) -> None:
+    """Still persist background configuration when generated code is syntactically invalid."""
+    mock_result = MagicMock()
+    mock_result.final_output = "def broken(:\n    pass\n"
+    with patch("layersense_agent.api.v1.endpoints.animate_scene.Runner") as mock_runner:
+        mock_runner.run = AsyncMock(return_value=mock_result)
+        with patch(
+            "layersense_agent.api.v1.endpoints.animate_scene.LAYERSENSE_SCENES_DIR", tmp_path
+        ):
+            with TestClient(app) as client:
+                response = client.post(
+                    "/api/v1/animation",
+                    json={
+                        "prompt": "Animate a square.",
+                        "scene": {**SCENE_PAYLOAD, "appState": {"viewBackgroundColor": "#abcdef"}},
+                    },
+                )
+
+    assert response.status_code == 200
+    assert Path(response.json()["scene_path"]).read_text().splitlines()[:2] == [
+        "from manim import config",
+        'config.background_color = "#abcdef"',
+    ]
+
+
 def test_create_animation_rejects_unsupported_scene_elements(mock_client) -> None:
     """Reject scenes whose elements all normalize away at the API boundary."""
     test_client, mock_runner, _scenes_dir = mock_client

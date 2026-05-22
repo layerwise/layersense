@@ -1,12 +1,22 @@
 import hashlib
 import json
-from contextlib import contextmanager
 from datetime import UTC, datetime
+from functools import lru_cache
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, TypedDict
 
+from redis import Redis
+
 from layersense_controller.config import settings
+from layersense_controller.locks import (
+    CACHE_LOCK_ACQUIRE_TIMEOUT_MS,
+    CACHE_LOCK_POLL_INTERVAL_MS,
+    CACHE_LOCK_TTL_MS,
+    redis_lock_sync,
+)
+
+CACHE_INDEX_LOCK_KEY = "layersense:lock:cache_index"
 
 
 class CachedArtifacts(TypedDict):
@@ -104,7 +114,13 @@ def store_cached_artifacts(
     if final is not None:
         _checked_indexed_path(final)
 
-    with _cache_lock():
+    with redis_lock_sync(
+        _cache_redis_client(),
+        key=CACHE_INDEX_LOCK_KEY,
+        ttl_ms=CACHE_LOCK_TTL_MS,
+        acquire_timeout_ms=CACHE_LOCK_ACQUIRE_TIMEOUT_MS,
+        poll_interval_ms=CACHE_LOCK_POLL_INTERVAL_MS,
+    ):
         index = _load_cache_index()
         existing = _cached_artifacts_record(index, content_hash)
 
@@ -131,10 +147,6 @@ def store_cached_artifacts(
 
 def _cache_index_path() -> Path:
     return settings.artifacts_dir / "cache" / "index.json"
-
-
-def _cache_lock_path() -> Path:
-    return settings.artifacts_dir / "cache" / "index.lock"
 
 
 def _load_cache_index() -> CacheIndex:
@@ -167,18 +179,9 @@ def _persist_cache_index(index: CacheIndex) -> None:
     temp_path.replace(index_path)
 
 
-@contextmanager
-def _cache_lock():
-    import fcntl
-
-    lock_path = _cache_lock_path()
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+@lru_cache
+def _cache_redis_client() -> Redis:
+    return Redis.from_url(str(settings.redis_url), decode_responses=True)
 
 
 def _checked_indexed_path(relative_path: str | None) -> Path | None:

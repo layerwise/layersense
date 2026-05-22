@@ -28,7 +28,7 @@ The controller watcher code remains in the repo for future manual-edit rerender 
 
 Raw Manim scene renders now live under `./layersense_artifacts/scenes/<project-or-_root>/<preview|final>/...`.
 The preview/final Manim config defaults are packaged inside `layersense_controller` itself under `src/layersense_controller/resources/`, so local and Docker runs use the same installed config resources instead of repo-root config files.
-The controller now keeps a JSON cache index at `./layersense_artifacts/cache/index.json` and serves browser-facing artifacts through stable routes instead of duplicating top-level hash-named mp4 files. Artifact cache identity now includes both scene file content and normalized controller CLI flags.
+The controller now keeps a JSON cache index at `./layersense_artifacts/cache/index.json` and serves browser-facing artifacts through stable routes instead of duplicating top-level hash-named mp4 files. Cache-index writes coordinate through Redis, and artifact cache identity includes both scene file content and normalized controller CLI flags.
 
 ## Render Layout
 
@@ -173,6 +173,7 @@ Useful commands:
 - `just test_python`: Python `unit` plus `integration` tests
 - `just test_python_unit`: explicit Python `unit` selection
 - `just test_python_integration`: Python `integration` tests in replay mode
+- `just test_python_integration_coverage`: Python `integration` tests plus per-module runtime coverage gate; every reported module must be at least 95%
 - `just test_python_integration_refresh`: Python `integration` tests in record mode
 - `just test_python_e2e`: Python `e2e` marker selection
 - `just e2e`: black-box live-stack `e2e` tests against an already-running local stack
@@ -185,16 +186,16 @@ The detailed taxonomy rationale and rollout notes live in:
 
 Notes:
 
-- `just test_python_integration` and `just test_python_integration_coverage` now work with the current agent integration suite and the first controller integration slice.
+- `just test_python_integration` and `just test_python_integration_coverage` now work with the current agent and controller integration suites.
 - `just test_python` now includes both backend packages in taxonomy verification because `layersense_controller/tests/integration/test_*.py` exists.
-- `just test_python_integration_coverage` still shows `layersense_controller` as the remaining backend integration coverage frontier beyond this first slice.
+- `just test_python_integration_coverage` is the canonical integration coverage gate for Python changes; keep every changed runtime module at or above 95% integration coverage before handoff.
 - Export `OPENAI_API_KEY` in your shell before running `just docker`.
 - The current compose stack requires Redis because render job state and Taskiq transport both depend on it.
+- Cache-index writes also use Redis for short-lived cross-process coordination.
 - Shared host-mounted directories are used for scene and artifact exchange:
   - `./layersense_artifacts/code`
   - `./layersense_artifacts`
 - Controller render requests must point at scene files inside the configured `layersense_scenes` directory.
-- The cache index still uses file-based locking. In local Docker Desktop environments with shared host volumes, cache-index contention remains a known limitation until a Redis-backed cache-lock follow-up lands.
 
 ## Controller Outlook
 
@@ -203,8 +204,8 @@ The next backend hardening pass should build on `layersense_controller/tests/int
 Recommended next slice for another coding assistant:
 
 1. Decide whether the next boundary worth covering is real Redis integration or a minimal live-worker smoke layer.
-2. If staying in-process, focus on the remaining router/cache edge cases rather than the already-covered happy paths.
+2. If staying in-process, add coverage for behavior changes through the current integration tools rather than relying on unit coverage alone.
 3. Treat `watcher.py` as optional unless the watcher flow becomes a first-class product path again.
 4. Use the latest integration coverage report to choose between broker wiring, watcher coverage, and a real Redis/live-worker step.
 
-The current coverage report from `just test_python_integration_coverage` now concentrates the controller integration frontier mainly in `watcher.py`, some broker wiring, and the decision of whether to add real Redis/live-worker coverage.
+The current coverage report from `just test_python_integration_coverage` is expected to pass the 95% per-module gate; any new runtime module should either be covered by integration tests or intentionally excluded from runtime coverage scope.

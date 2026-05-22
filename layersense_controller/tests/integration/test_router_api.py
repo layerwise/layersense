@@ -173,6 +173,24 @@ def test_render_enqueues_expected_taskiq_payload(tmp_path, monkeypatch) -> None:
     )
 
 
+def test_render_rejects_missing_scene_file(tmp_path, monkeypatch) -> None:
+    """Return 404 when a render request references a missing scene file."""
+    scenes_dir = tmp_path / "layersense_scenes"
+    artifacts_dir = tmp_path / "artifacts"
+    scenes_dir.mkdir()
+    artifacts_dir.mkdir()
+    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+
+    with _client() as client:
+        response = client.post(
+            "/render",
+            json={"scene_path": str(scenes_dir / "missing.py"), "conversation_id": "conv-1"},
+        )
+
+    assert response.status_code == 404
+
+
 def test_get_render_job_returns_404_when_store_has_no_job(monkeypatch) -> None:
     """Return 404 when the requested render job does not exist."""
     calls = []
@@ -238,6 +256,129 @@ def test_artifact_routes_return_404_for_missing_or_escaped_paths(tmp_path, monke
 
     assert missing.status_code == 404
     assert escaped.status_code == 404
+
+
+def test_artifact_route_rejects_missing_file_inside_scenes_root(tmp_path, monkeypatch) -> None:
+    """Return 404 for legacy artifact paths that resolve inside scenes but do not exist."""
+    artifacts_dir = tmp_path / "artifacts"
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    (artifacts_dir / "scenes").mkdir(parents=True)
+
+    with _client() as client:
+        response = client.get("/artifacts/scenes/_root/final/missing.mp4")
+
+    assert response.status_code == 404
+
+
+def test_artifact_route_serves_legacy_scene_path_and_rejects_escape(tmp_path, monkeypatch) -> None:
+    """Serve legacy artifact paths while rejecting paths outside the scenes root."""
+    artifacts_dir = tmp_path / "artifacts"
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    artifact = artifacts_dir / "scenes" / "_root" / "final" / "demo.mp4"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_bytes(b"final")
+
+    with _client() as client:
+        served = client.get("/artifacts/scenes/_root/final/demo.mp4")
+        escaped = client.get("/artifacts/%2E%2E/outside.mp4")
+
+    assert served.status_code == 200
+    assert served.content == b"final"
+    assert escaped.status_code == 404
+
+
+def test_artifact_by_hash_returns_404_for_missing_cache_or_kind(tmp_path, monkeypatch) -> None:
+    """Return 404 for cache misses and missing artifact kinds on by-hash routes."""
+    artifacts_dir = tmp_path / "artifacts"
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    preview = artifacts_dir / "scenes" / "_root" / "preview" / "demo_preview.mp4"
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"preview")
+    index_path = artifacts_dir / "cache" / "index.json"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        json.dumps(
+            {
+                "by_hash": {
+                    "hash-1": {
+                        "scene_path": "demo.py",
+                        "scene_uuid": "demo",
+                        "preview": "_root/preview/demo_preview.mp4",
+                        "final": None,
+                        "updated_at": "2026-05-04T00:00:00Z",
+                        "artifact_version": 1,
+                    }
+                },
+                "by_scene_uuid": {"demo": "hash-1"},
+            }
+        )
+    )
+
+    with _client() as client:
+        missing_hash = client.get("/artifacts/by-hash/missing/preview")
+        missing_final = client.get("/artifacts/by-hash/hash-1/final")
+
+    assert missing_hash.status_code == 404
+    assert missing_final.status_code == 404
+
+
+def test_artifact_for_scene_returns_404_when_cached_artifacts_are_unusable(
+    tmp_path, monkeypatch
+) -> None:
+    """Return 404 for scene routes when reverse mappings or artifact paths are unusable."""
+    artifacts_dir = tmp_path / "artifacts"
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+    index_path = artifacts_dir / "cache" / "index.json"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with _client() as client:
+        no_mapping = client.get("/artifacts/scenes/missing-scene")
+
+    index_path.write_text(
+        json.dumps(
+            {
+                "by_hash": {
+                    "hash-1": {
+                        "scene_path": "demo.py",
+                        "scene_uuid": "demo",
+                        "preview": None,
+                        "final": None,
+                        "updated_at": "2026-05-04T00:00:00Z",
+                        "artifact_version": 1,
+                    }
+                },
+                "by_scene_uuid": {"demo": "hash-1"},
+            }
+        )
+    )
+
+    with _client() as client:
+        no_artifacts = client.get("/artifacts/scenes/demo")
+
+    index_path.write_text(
+        json.dumps(
+            {
+                "by_hash": {
+                    "hash-1": {
+                        "scene_path": "demo.py",
+                        "scene_uuid": "stale-demo",
+                        "preview": None,
+                        "final": None,
+                        "updated_at": "2026-05-04T00:00:00Z",
+                        "artifact_version": 1,
+                    }
+                },
+                "by_scene_uuid": {"demo": "hash-1"},
+            }
+        )
+    )
+
+    with _client() as client:
+        stale_mapping = client.get("/artifacts/scenes/demo")
+
+    assert no_mapping.status_code == 404
+    assert no_artifacts.status_code == 404
+    assert stale_mapping.status_code == 404
 
 
 def test_get_artifact_by_hash_serves_cached_preview_file(tmp_path, monkeypatch) -> None:
@@ -392,6 +533,74 @@ def test_render_generated_scene_reuses_cached_hash_and_remaps_scene_uuid(
     assert response.status_code == 200
     assert remapped_index["by_scene_uuid"]["new-uuid"] == content_hash
     assert "old-uuid" not in remapped_index["by_scene_uuid"]
+
+
+def test_render_cache_hit_for_non_generated_scene_keeps_existing_mapping(
+    tmp_path, monkeypatch
+) -> None:
+    """Return cached jobs for matching non-generated scene UUIDs without remapping."""
+    scenes_dir = tmp_path / "layersense_scenes"
+    artifacts_dir = tmp_path / "artifacts"
+    scenes_dir.mkdir()
+    artifacts_dir.mkdir()
+    monkeypatch.setattr(settings, "scenes_dir", scenes_dir)
+    monkeypatch.setattr(settings, "artifacts_dir", artifacts_dir)
+
+    scene_path = scenes_dir / "demo_scene.py"
+    scene_path.write_text("print('demo')\n")
+    content_hash = hash_render_request(scene_path, {})
+    preview = artifacts_dir / "scenes" / "_root" / "preview" / "demo_preview.mp4"
+    final = artifacts_dir / "scenes" / "_root" / "final" / "demo_final.mp4"
+    preview.parent.mkdir(parents=True, exist_ok=True)
+    final.parent.mkdir(parents=True, exist_ok=True)
+    preview.write_bytes(b"preview")
+    final.write_bytes(b"final")
+    index_path = artifacts_dir / "cache" / "index.json"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        json.dumps(
+            {
+                "by_hash": {
+                    content_hash: {
+                        "scene_path": "demo_scene.py",
+                        "scene_uuid": "demo_scene",
+                        "preview": "_root/preview/demo_preview.mp4",
+                        "final": "_root/final/demo_final.mp4",
+                        "updated_at": "2026-05-04T00:00:00Z",
+                        "artifact_version": 1,
+                    }
+                },
+                "by_scene_uuid": {"demo_scene": content_hash},
+            }
+        )
+    )
+
+    async def fake_create_completed_job(
+        self, *, job_id: str, conversation_id: str, preview_url: str, final_url: str
+    ) -> RenderJobSnapshot:
+        return RenderJobSnapshot(
+            job_id=job_id,
+            conversation_id=conversation_id,
+            status="succeeded",
+            version=1,
+            preview_url=preview_url,
+            final_url=final_url,
+            error=None,
+            stderr=None,
+        )
+
+    monkeypatch.setattr(
+        "layersense_controller.router.get_job_store",
+        lambda: type("Store", (), {"create_completed_job": fake_create_completed_job})(),
+    )
+
+    with _client() as client:
+        response = client.post(
+            "/render", json={"scene_path": str(scene_path), "conversation_id": "conv-1"}
+        )
+
+    assert response.status_code == 200
+    assert json.loads(index_path.read_text())["by_scene_uuid"] == {"demo_scene": content_hash}
 
 
 def test_render_queues_when_cached_final_is_missing(tmp_path, monkeypatch) -> None:
