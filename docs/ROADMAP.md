@@ -107,6 +107,7 @@ The likely next phase is not another UI-only pass, but a full-stack reliability 
 - keep deterministic render fields, starting with Excalidraw `viewBackgroundColor`, out of the freeform prompt and in explicit render-option contracts
 - keep Manim output layout explicit and storage-oriented under `layersense_artifacts/scenes/<project-or-_root>/<preview|final>/...`, with cache identity stored in `layersense_artifacts/cache/index.json` and browser access exposed through `/artifacts/by-hash/...` and `/artifacts/scenes/...` routes
 - keep render-job state ephemeral in Redis, use Redis for cache-index write coordination, and execute preview/final work in a dedicated controller Taskiq worker
+- introduce durable SQLite-backed Project/Scene/Frame/Render persistence through `layersense_persistence` before frontend navigation and object-store rewiring
 - keep preview/final Manim config defaults package-owned inside `layersense_controller`, so Docker and local runs resolve the same installed config resources
 - harden watcher/controller interactions and cache behavior
 - improve failure-path handling and developer startup/testing ergonomics

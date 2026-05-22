@@ -1,6 +1,6 @@
 # LayerSense Persistence Package — Implementation Plan
 
-**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (canonical for schema and architecture).
+**Status:** Implemented 2026-05-22. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (canonical for schema and architecture).
 **Author:** Sisyphus (OpenCode session, 2026-05-21, Planning architecture and future directions for repo)
 **Scope:** Step 2 of the multi-step architecture revamp covering object storage, agent evolution, and frontend revamp.
 
@@ -120,6 +120,7 @@ UNIQUE (scene_id, excalidraw_frame_id)
 id                       TEXT PRIMARY KEY
 scene_id                 TEXT NOT NULL REFERENCES scene(id) ON DELETE CASCADE
 parent_render_id         TEXT REFERENCES render(id) ON DELETE SET NULL
+refinement_prompt        TEXT NOT NULL DEFAULT ''            -- canonical per overview; used by Step 5
 content_hash             TEXT NOT NULL                       -- canonical hash of (scene_py + cli_flags)
 status                   TEXT NOT NULL                       -- generating | queued | preview_ready | final_ready | failed
 scene_py_artifact_key    TEXT                                -- nullable while status=generating; set on agent response

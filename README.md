@@ -12,6 +12,7 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 - `layersense_frontend/` contains a stock-Excalidraw React app with prompt input, generate flow, and preview/final render UI.
 - `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload, normalizes it into a typed internal scene model, and writes generated Manim scene files with source-level background configuration when needed.
 - `layersense_controller/` queues render jobs, stores ephemeral job state in Redis, applies explicit per-request CLI flags, runs Manim renders through a Taskiq worker, and serves cached artifacts over stable HTTP routes.
+- `layersense_persistence/` owns the durable SQLite Project/Scene/Frame/Render schema, Alembic migrations, DTOs, and repository classes for the architecture migration.
 - The full end-to-end workflow is partially implemented, and the repo now includes dedicated Python `e2e` tests for the live local stack, but real render reliability issues still remain before it should be treated as production-ready.
 
 ## Current Architecture
@@ -170,6 +171,8 @@ What we learned from the `layersense_agent` pass:
 Useful commands:
 
 - `just test`: default repo verification for Python unit tests plus frontend tests
+- `just db_migrate`: apply the `layersense_persistence` Alembic migrations to `./layersense_artifacts/db/layersense.sqlite`
+- `just db_reset`: remove the local SQLite DB and re-run migrations
 - `just test_python`: Python `unit` plus `integration` tests
 - `just test_python_unit`: explicit Python `unit` selection
 - `just test_python_integration`: Python `integration` tests in replay mode
