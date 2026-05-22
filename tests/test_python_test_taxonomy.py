@@ -15,6 +15,7 @@ def _python_test_modules() -> list[Path]:
     return sorted(
         list((root / "layersense_controller" / "tests").rglob("test_*.py"))
         + list((root / "layersense_agent" / "tests").rglob("test_*.py"))
+        + list((root / "layersense_persistence" / "tests").rglob("test_*.py"))
         + list((root / "tests").rglob("test_*.py"))
     )
 
@@ -44,6 +45,7 @@ def test_python_test_inventory_includes_nested_package_modules() -> None:
 
     assert any("/layersense_agent/tests/unit/" in path.as_posix() for path in module_paths)
     assert any("/layersense_controller/tests/unit/" in path.as_posix() for path in module_paths)
+    assert any("/layersense_persistence/tests/unit/" in path.as_posix() for path in module_paths)
     assert any("/tests/e2e/" in path.as_posix() for path in module_paths)
 
 
@@ -73,3 +75,23 @@ def test_core_packages_have_integration_test_modules() -> None:
 
     assert sorted((root / "layersense_agent" / "tests" / "integration").glob("test_*.py"))
     assert sorted((root / "layersense_controller" / "tests" / "integration").glob("test_*.py"))
+    assert sorted((root / "layersense_persistence" / "tests" / "integration").glob("test_*.py"))
+
+
+def test_persistence_import_boundaries_preserve_option_c() -> None:
+    """Keep persistence out of the agent and ORM imports out of other packages."""
+    root = Path(__file__).resolve().parents[1]
+    agent_sources = sorted((root / "layersense_agent" / "src").rglob("*.py"))
+    external_sources = sorted(
+        path
+        for package in ("layersense_agent", "layersense_controller", "layersense_domain")
+        for path in (root / package / "src").rglob("*.py")
+    )
+
+    for module_path in agent_sources:
+        content = module_path.read_text()
+        assert "layersense_persistence" not in content, module_path
+
+    for module_path in external_sources:
+        content = module_path.read_text()
+        assert "layersense_persistence.models" not in content, module_path

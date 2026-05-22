@@ -13,3 +13,4 @@ def test_workspace_packages_are_importable() -> None:
     assert importlib.import_module("layersense_agent") is not None
     assert importlib.import_module("layersense_controller") is not None
     assert importlib.import_module("layersense_domain") is not None
+    assert importlib.import_module("layersense_persistence") is not None
