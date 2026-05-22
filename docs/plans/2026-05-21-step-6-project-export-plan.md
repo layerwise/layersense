@@ -1,6 +1,6 @@
 # Project Export — Implementation Plan
 
-**Status:** Proposed
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Migration number is `0005` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006). Canonical source-key form: `renders/{content_hash}/source.py`.
 **Step in build order:** 6 of 9
 **Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`layersense_storage` + `ObjectStore`) merged, Step 4 (Project/Scene CRUD + controller orchestration) merged
 **Unblocks:** Step 7 (multi-file project + components library), Step 8 (S3 backend — export becomes a streaming zip from presigned URLs)
@@ -240,7 +240,7 @@ For the initial implementation, `include_renders=none` is the primary path. The 
 
 ### `Render.manim_version` schema delta
 
-Add `manim_version TEXT NULL` to the `Render` table. Migration `0004_add_render_manim_version.py` (or fold into the nearest unfinalized migration).
+Add `manim_version TEXT NULL` to the `Render` table. Migration `0005_add_render_manim_version.py`.
 
 The worker records the version at render time:
 
@@ -302,7 +302,7 @@ If the user wants to include renders (future: a dropdown or checkbox), the href 
 
 ### `layersense_persistence`
 
-- `migrations/versions/0004_add_render_manim_version.py` — adds `render.manim_version TEXT NULL`.
+- `migrations/versions/0005_add_render_manim_version.py` — adds `render.manim_version TEXT NULL`.
 - `layersense_persistence/src/layersense_persistence/repositories/renders.py` — add `latest_successful(scene_id: str) -> Render | None` query method.
 - `layersense_persistence/src/layersense_persistence/schemas.py` — add `manim_version: str | None` to `RenderSchema`.
 

@@ -1,8 +1,8 @@
 # ObjectStore + RendersRepository Wiring — Implementation Plan
 
-**Status:** Proposed
-**Step in build order:** 3 of 9
-**Depends on:** Step 1 (Redis lock) merged, Step 2 (`layersense_persistence`) merged
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (overview is canonical for schema, key layout, and Option C boundaries). Amended 2026-05-21 to (a) split delivery into two PRs (3a `layersense_storage` package; 3b controller wiring), (b) make the `/render` HTTP-contract break explicit, (c) lock the watcher hard-disabled with a startup raise, (d) wire `RenewableLock` (from Step 1) for the in-flight render-dedup mutex, (e) declare the `_default` project shim's wipe boundary at Step 4.
+**Step in build order:** 3 of 9 (delivered as **3a → 3b** in that order)
+**Depends on:** Step 1 (Redis lock + `RenewableLock` primitive) merged, Step 2 (`layersense_persistence`) merged
 **Unblocks:** Step 4 (frontend revamp), Step 5 (agent refinement), Step 6 (project export), Step 8 (S3 backend)
 
 ---
@@ -20,6 +20,34 @@ This is the load-bearing migration. After this step:
 The visible behavior of the system to the frontend is unchanged in this step: same `/render` and `/render-jobs/{job_id}` contracts, same `/artifacts/by-hash/...` and `/artifacts/scenes/...` routes. The change is internal substrate only — but it is the substrate every later step depends on. Step 4 introduces a new `/scenes/{id}/generate` endpoint and retires the browser→agent direct call.
 
 **Architectural anchor (Option C, decided in Step 4 design discussion):** the agent is a stateless pure function. The controller is the orchestrator and the only writer to the database and the object store. The browser only ever talks to the controller. This step makes the object-store half of that contract real; Step 4 makes the orchestration half real.
+
+---
+
+## Delivery split: 3a then 3b
+
+This step ships as two PRs in order. They are cumulative; nothing in 3b can land before 3a.
+
+**PR 3a — `layersense_storage` package, standalone.**
+
+- New uv workspace member, no consumers wired in yet.
+- `ObjectStore` Protocol, `LocalFSObjectStore`, `keys.py`, `errors.py`, `config.py`.
+- Full unit + concurrency-integration test coverage at ≥ 95%.
+- Zero edits to `layersense_controller`, `layersense_agent`, frontend, docker-compose, README, ROADMAP.
+- Acceptance criteria 1–9 of "PR 3a Acceptance" below; controller-wiring criteria deferred to 3b.
+- Cassettes: none touched.
+- Reviewable in isolation. Mergeable independently. If 3b is blocked or contested, 3a still lands as a stable, unused package.
+
+**PR 3b — controller wiring, contract break, `cache.py` deletion, `_default` shim, watcher disable.**
+
+- Depends on PR 3a merged.
+- All file-level changes in `### Modified` and `### Deleted` below.
+- The breaking `/render` HTTP-contract change (`scene_path` → `source_code` + `content_hash`) lands here in a single atomic commit alongside the matching frontend, agent, compose, and cassette updates. No transitional dual-shape support.
+- The `_default` project shim is created here. **Step 4 wipes it on boundary.** See "_default shim cleanup" below.
+- Watcher hard-disabled with `raise NotImplementedError` on startup; tests skipped, not deleted.
+- `RenewableLock` from Step 1 is wired around the worker entrypoint for in-flight render dedup. See "Render dedup with heartbeat" below.
+- Cassettes refresh in one explicit step; called out in the PR description.
+
+**Why split:** PR 3a is a self-contained library landing. PR 3b is a coordinated breaking change across three services + frontend + compose + cassettes. Reviewing them together makes the diff impossible to reason about; reviewing them separately gives a clean library boundary first, then a focused integration commit.
 
 ---
 
@@ -124,13 +152,15 @@ projects/{project_id}/assets/{asset_id}/{filename}  # reserved for Step 7 (compo
 
 ### Schema additions in `layersense_persistence`
 
-Step 2's schema is mostly sufficient. This step adds:
+Step 2's schema, as normalized against the overview, already includes:
 
-- **`render.scene_py_artifact_key`** is already present in Step 2's schema. Confirmed.
-- **`render.preview_artifact_key`, `final_artifact_key`** already present. Confirmed.
-- **One small migration `0002_add_render_log_key.py`**: add `render.log_artifact_key TEXT` so the captured Manim stdout/stderr is addressable. Useful for failure debugging — today `cache.py` has no equivalent and that hurts.
+- `render.scene_py_artifact_key` (nullable until agent returns)
+- `render.preview_artifact_key`, `render.final_artifact_key`
+- `render.log_artifact_key` (set when worker finishes — used here for debug log retention)
+- `scene.thumbnail_artifact_key` (set by worker after preview; consumed by Step 4)
+- `render.status` enum includes `generating | queued | preview_ready | final_ready | failed`
 
-If Step 2's migration `0001` has not yet been finalized when this lands, fold the column into `0001` instead of shipping `0002`. Either is fine.
+**No new migrations are needed in this step.** All required columns are in `0001_initial` per the normalized Step 2 plan. If you find a column missing because the Step 2 PR shipped before the normalization landed, add it as a focused `0002_*.py` migration in this PR rather than back-editing `0001`.
 
 ### Implicit project/scene creation
 
@@ -144,9 +174,24 @@ This is deliberately ugly. It is a 30-line shim that lets Step 3 ship without dr
 
 **Push-back surfaced explicitly:** an alternative is to introduce a real `POST /scenes` endpoint in this PR and have the frontend call it before `/render`. That doubles the PR size and forces frontend changes I committed to deferring to Step 4. The shim is the right call given the build order; it lives for one step.
 
-### Agent ↔ Controller contract change
+#### `_default` shim cleanup (Step 4 boundary)
 
-Today:
+The shim is born in PR 3b and is **wiped, not migrated, at the Step 4 boundary**.
+
+- **Death plan:** Step 4's first commit is a focused migration `0003_drop_default_project_shim.py` that:
+  - Deletes the `project WHERE slug='_default'` row.
+  - Relies on `ON DELETE CASCADE` (declared in Step 2's `0001_initial`) to remove all dependent `scene`, `frame`, and `render` rows.
+  - Calls `ObjectStore.list_prefix("renders/")` and `delete()` for every key produced by `_default`-attributed renders. The Step 4 PR adds a `RendersRepository.list_keys_for_project(project_id)` helper specifically for this wipe.
+  - Logs a one-line summary: "wiped N renders / M blobs from _default shim".
+- **No data preservation.** The `_default` shim only ever holds throwaway content from the Step 3 transition window (you, single-user, dev stage, between PR 3b and Step 4 landing). Any render you actually care about is re-generated against a real Project in Step 4's CRUD-driven flow.
+- **Anti-leak guard in Step 4:** acceptance criteria for Step 4 include `SELECT COUNT(*) FROM project WHERE slug='_default'` returning 0 after `just db_reset && just docker && (Step 4 boot)`. Any creation path that would resurrect the shim is removed.
+- **PR 3b TODO marker:** the shim's call site in `router.py` is decorated with `# TODO(step-4): remove. See docs/plans/2026-05-21-frontend-revamp-and-project-scene-crud-plan.md §"_default shim wipe".` so grep finds it on Step 4 kickoff.
+
+### Agent ↔ Controller contract change (**BREAKING**)
+
+This is a breaking HTTP-contract change to **both** `POST /api/v1/animation` (agent) and `POST /render` (controller), shipped atomically in **PR 3b**. There is no transitional dual-shape support; the old and new shapes do not coexist for even one commit.
+
+**Today:**
 
 ```
 browser → agent: POST /api/v1/animation { excalidraw_scene, prompt }
@@ -157,10 +202,10 @@ browser → controller: POST /render { scene_path, conversation_id, cli_flags? }
   controller → reads scene_path from the shared host-mounted disk
 ```
 
-After this step:
+**After PR 3b:**
 
 ```
-browser → agent: POST /api/v1/animation { excalidraw_scene, prompt }       (unchanged callers; new response)
+browser → agent: POST /api/v1/animation { excalidraw_scene, prompt }       (request shape unchanged; response changes)
   agent → returns { conversation_id, source_code: "<python source>", content_hash }
   agent → has zero filesystem touches; does not import layersense_storage
 
@@ -172,13 +217,62 @@ worker → ObjectStore.get(render_source_key) → /tmp/layersense-renders/<rende
 worker → ObjectStore.put_stream(render_preview_key, ...), then render_final_key
 ```
 
-**Notes on this contract:**
+**What this means for clients:**
+
+- Any caller still sending `scene_path` to `POST /render` after PR 3b lands gets `HTTP 422 Unprocessable Entity` from FastAPI's pydantic validation. There is no compatibility shim.
+- The agent response key `scene_path` is gone. Any caller still reading it gets `KeyError` / `undefined`.
+- The frontend is updated in the same PR 3b to forward the new agent response fields straight through to the new `/render` request shape. No browser-side logic interprets the source bytes.
+- `tests/e2e/test_dev_stack_e2e.py` is updated in the same PR 3b. No staging or canary window.
+
+**Why no dual-shape support:** single-user dev stage; there are no external clients to migrate; the only "client" is the frontend in this same monorepo and the e2e test suite. A dual-shape phase would double the surface for one PR's worth of benefit (zero — no client is on the old shape after merge). Reviewer-visible cost of the break is exactly: bad pydantic payloads fail loudly, and `git bisect` across this commit needs a `just docker` restart. Acceptable.
+
+**Notes on the new contract:**
 
 - The agent's response now contains **raw Python source as a string**, not a key. Manim files are tiny (typically 1–10 KB); HTTP transport is fine.
 - The browser passes the source bytes verbatim from the agent's response into `POST /render`. It does not interpret or modify them. (In Step 4 this changes again: the browser stops talking to the agent at all, the controller orchestrates both calls server-side. Step 3 keeps today's two-call browser flow to limit blast radius.)
 - The controller is the **only** writer to the ObjectStore. The agent does not import `layersense_storage`.
 - The shared host-mounted `layersense_artifacts/code/` volume is removed from `docker-compose.yml`. The agent service has no mounted volumes after this step.
 - The controller still needs to materialize the source as a real file on disk for the Manim CLI subprocess (Manim does not read from stdin). It does so to a per-render temp dir under `LAYERSENSE_RENDER_WORKDIR` (default `/tmp/layersense-renders/<render_id>/`), cleaned up after the render finishes. This is ephemeral, not shared, and not the object store.
+
+### Render dedup with heartbeat (`RenewableLock`)
+
+The render is the long critical section in this system. A Manim render can take 30s for a preview and several minutes for a final. A flat-TTL Redis mutex is the wrong shape: too short and the lock self-releases mid-render (two workers double-encode the same content_hash and race on `put_stream`); too long and a crashed worker holds the lock until the TTL drains, blocking legitimate retries.
+
+PR 3b wires `RenewableLock` (introduced in Step 1) around the worker entrypoint:
+
+```python
+# inside the Taskiq render task body, pseudo-code
+lock_key = f"layersense:lock:render:{effective_hash}"
+async with RenewableLock(
+    redis,
+    key=lock_key,
+    ttl_ms=settings.render_lock_ttl_ms,                # 30_000
+    heartbeat_interval_ms=settings.render_lock_heartbeat_interval_ms,  # 10_000
+    acquire_timeout_ms=settings.render_lock_acquire_timeout_ms,        # 5_000
+) as lock:
+    # heartbeat task is now extending TTL every 10s
+    materialize_scene_source_for_manim(...)
+    run_manim_preview(...)
+    object_store.put_stream(render_preview_key(effective_hash), ...)
+    update_render_row(status="preview_ready", ...)
+    run_manim_final(...)
+    object_store.put_stream(render_final_key(effective_hash), ...)
+    update_render_row(status="final_ready", ...)
+```
+
+**Behavior:**
+
+- If a second worker picks up an identical-hash render while the first is still in flight, `RenewableLock.__aenter__` waits up to `acquire_timeout_ms` (5s). It then raises `LockAcquisitionError`. The dispatching code catches that and short-circuits the second job: it attaches to the first job's `job_id` via `RendersRepository.find_in_flight_by_hash(effective_hash)` and returns that snapshot, no duplicate work.
+- If the first worker crashes (kill, OOM, container restart): heartbeat task stops; TTL drains within ~`ttl_ms + heartbeat_interval_ms` worst case (40s); next caller acquires the lock and re-renders.
+- If the heartbeat detects the lock has been stolen (token mismatch — should not happen with correct TTL/interval math, but guarded), the worker raises `LockLost` and the Render row is marked `failed` with reason `lock_lost`. This is observable and recoverable, not silent.
+
+**Configuration** (module constants on `RenderControllerSettings`, per user preference):
+
+- `render_lock_ttl_ms: int = 30_000`
+- `render_lock_heartbeat_interval_ms: int = 10_000`
+- `render_lock_acquire_timeout_ms: int = 5_000`
+
+The Step 1 invariant `heartbeat_interval_ms < ttl_ms / 2` is satisfied with 3x margin.
 - `scene_path` is **removed** from both the agent response and the controller request. This is a breaking change — explicitly intended — and the frontend is updated in lockstep within this PR.
 
 ### Render path, end to end after this step
@@ -208,9 +302,7 @@ worker → ObjectStore.put_stream(render_preview_key, ...), then render_final_ke
 7. Frontend hits /artifacts/by-hash/{content_hash}/preview (controller streams from object_store)
 ```
 
-The `cache_index` Redis lock from Step 1 is **deleted** in this PR — there is nothing left to lock around once `cache.py` is gone. The render-dedup concern is naturally handled: the SQLite `UNIQUE(content_hash)` semantics are not enforced (multiple Render rows may share a content_hash), but the `find_by_content_hash` short-circuit in step 4 above means redundant work is avoided. Two simultaneous identical renders may both proceed once and produce byte-identical blobs at the same key — last-write-wins on identical content, no corruption.
-
-If you want strict dedup of in-flight renders, add a Redis lock keyed `layersense:lock:render:{effective_hash}` around the Taskiq task body. **Recommended**, and cheap given Step 1 already shipped the primitive. Add it.
+The `cache_index` Redis lock from Step 1 is **deleted** in this PR — there is nothing left to lock around once `cache.py` is gone. In-flight render dedup is handled by `RenewableLock` keyed `layersense:lock:render:{effective_hash}` around the Taskiq task body, per the "Render dedup with heartbeat" section above. Even if dedup ever fails (e.g., lock acquisition timeout coincides with row-creation race), the worst case is two workers producing byte-identical blobs at the same content-addressed key — no corruption, just wasted CPU.
 
 ---
 
@@ -231,7 +323,7 @@ If you want strict dedup of in-flight renders, add a Redis lock keyed `layersens
 - `layersense_controller/src/layersense_controller/router.py` — accept `source_code` + `content_hash` instead of `scene_path`; consult `RendersRepository` + `artifacts.py` instead of `cache.py`; on cache miss, write source bytes to ObjectStore via `render_source_key`.
 - `layersense_controller/src/layersense_controller/render.py`, `render_tasks.py`, `render_runtime.py` — operate on object-store keys + temp workdir, not host paths.
 - `layersense_controller/src/layersense_controller/config.py` — drop `scenes_dir`; add `storage_root` (default `./layersense_artifacts/storage`), `render_workdir` (default `/tmp/layersense-renders`).
-- `layersense_controller/src/layersense_controller/watcher.py` — left alone for now (the watcher path is documented as deferred; if it breaks because `scenes_dir` is gone, mark it `# disabled until project-aware watcher` and skip its tests).
+- `layersense_controller/src/layersense_controller/watcher.py` — **hard-disable.** On module import or startup hook, raise `NotImplementedError("watcher disabled in Step 3; redesign in Step 7 as project-aware")`. Any code path that previously instantiated the watcher (lifespan startup, CLI subcommand, tests) is updated to skip-or-assert-raises. Watcher unit/integration tests are **marked `pytest.skip` with a reason string pointing at Step 7**, not deleted. The file is not deleted because the project-aware rewrite in Step 7 will reuse the FS-event scaffolding.
 - `layersense_frontend/src/api.ts` and `App.tsx` — pass `source_code` + `content_hash` through to `POST /render`. Small, mechanical.
 - `docker-compose.yml` — drop `LAYERSENSE_SCENES_DIR` and the shared `code/` mount. The `agent` service has no mounted volumes. `controller` and `controller-worker` mount only `./layersense_artifacts/storage/`.
 - `README.md` — rewrite "Render Layout" and "Current Architecture" sections to reflect object store + DB; remove `cache/index.json` references and the `scenes/<project>/<preview|final>/...` example tree.
@@ -271,12 +363,17 @@ If you want strict dedup of in-flight renders, add a Redis lock keyed `layersens
 - `artifacts.store_render_outputs` puts preview/final/log into the object store and updates the `Render` row in one logical operation.
 
 **integration (using `fakeredis` + in-memory SQLite + `LocalFSObjectStore` rooted at `tmp_path`):**
-- `POST /render` happy path: agent has pre-populated `scene_source_key`; controller renders (Taskiq InMemoryBroker), eventually reaches `final_ready`; `/artifacts/by-hash/...` serves the bytes that were `put` by the worker.
+- `POST /render` happy path: request body carries `source_code` + `content_hash` (as the browser-side flow forwards from the agent's response in this step); controller writes source to ObjectStore at `renders/{content_hash}/source.py`, renders (Taskiq InMemoryBroker), eventually reaches `final_ready`; `/artifacts/by-hash/...` serves the bytes that were `put` by the worker.
 - `POST /render` cache-hit path: a previous Render with the same `effective_hash` exists; controller short-circuits, no Taskiq dispatch, response status is `final_ready` immediately.
 - `POST /render` cache-drift path: Render row exists but blobs are missing (object store wiped); controller re-renders rather than returning broken URLs.
+- `POST /render` with the legacy `scene_path` payload returns HTTP 422 (verifies the breaking-change criterion 12).
 - `/artifacts/scenes/{scene_uuid}` resolves through `ScenesRepository.current_render_id → Render → preview/final key → object_store.open`.
-- Two simultaneous identical-hash renders are deduped by the `layersense:lock:render:{hash}` Redis lock; only one Taskiq task body runs to completion (verified by counting `manim` invocations via a fake `subprocess.run`).
+- Two simultaneous identical-hash renders are deduped by the `layersense:lock:render:{hash}` `RenewableLock`; only one Taskiq task body runs to completion (verified by counting `manim` invocations via a fake `subprocess.run`).
+- `RenewableLock` heartbeat keeps the lock alive past initial `ttl_ms` for a simulated long-running render — `redis.pttl(lock_key)` stays positive throughout (criterion 18).
+- Worker crash mid-render (simulated via task cancellation) releases the lock within `ttl_ms + heartbeat_interval_ms`; a subsequent retry acquires successfully.
 - `GET /artifacts/by-hash/{hash}/preview` returns 404 when no Render with that hash exists.
+- Importing `layersense_controller.watcher` (or hitting the disabled-watcher startup path) raises `NotImplementedError` with a Step-7 pointer (criterion 16).
+- First `POST /render` with no prior project creates `project WHERE slug='_default'`; second call reuses it (criterion 20).
 
 ### `layersense_agent`
 
@@ -301,19 +398,41 @@ If you want strict dedup of in-flight renders, add a Redis lock keyed `layersens
 
 ## Acceptance criteria
 
-1. `grep -rn "cache.py\|index.json\|LAYERSENSE_SCENES_DIR\|scenes_dir" layersense_controller/src layersense_agent/src` returns no matches.
-2. `layersense_controller/src/layersense_controller/cache.py` does not exist.
-3. `uv run --all-packages pytest -m unit` passes.
-4. `uv run --all-packages pytest -m integration` passes.
-5. `just e2e` passes against the local Docker stack.
-6. `just test-e2e` passes (the assistant-friendly ephemeral compose run).
-7. Coverage for `layersense_storage/src/**` ≥ 95% from unit + integration.
-8. Coverage for `layersense_controller/src/**` does not regress; the `artifacts.py` façade is ≥ 90% covered.
-9. `just lint` passes.
-10. `docker-compose.yml` no longer mounts `./layersense_artifacts/code` on `agent` or `controller`. Only the storage volume is mounted.
-11. After a fresh `just db_reset && just docker`, the system handles `generate → render → preview → final` end-to-end and writes blobs under `layersense_artifacts/storage/renders/{hash}/{preview,final}.mp4`.
-12. README and ROADMAP no longer reference `cache/index.json`, `LAYERSENSE_SCENES_DIR`, or the legacy `scenes/<project>/<preview|final>/` tree.
-13. `layersense_persistence` is the only writer to the `render` and `scene` tables. Verified by AST/grep: no other package imports `layersense_persistence.models`.
+### PR 3a (`layersense_storage` package, standalone)
+
+1. `layersense_storage/` exists as a uv workspace member; `uv sync` resolves cleanly.
+2. `uv run --package layersense-storage pytest -m unit` passes.
+3. `uv run --package layersense-storage pytest -m integration` passes (concurrent-writes test).
+4. Coverage for `layersense_storage/src/**` ≥ 95% from unit + integration.
+5. `grep -rn "layersense_storage" layersense_controller/src layersense_agent/src` returns no matches — 3a is unused by other packages, by design.
+6. `keys.py` helpers reject keys containing `..` or absolute components (verified by test).
+7. `LocalFSObjectStore.put` is atomic under crash simulation (verified by test).
+8. `just lint` passes.
+9. README and ROADMAP are unchanged in 3a.
+
+### PR 3b (controller wiring, contract break, `cache.py` deletion)
+
+10. `grep -rn "cache.py\|index.json\|LAYERSENSE_SCENES_DIR\|scenes_dir\|scene_path" layersense_controller/src layersense_agent/src layersense_frontend/src` returns no matches.
+11. `layersense_controller/src/layersense_controller/cache.py` does not exist.
+12. `POST /render` with the old `scene_path`-shaped payload returns `HTTP 422` (verified by an integration test that intentionally sends the old shape).
+13. `POST /api/v1/animation` response includes `source_code` and `content_hash`, does not include `scene_path` (verified by an integration test).
+14. The agent does not import `layersense_storage` (AST/grep check).
+15. The agent does not write to disk under any code path (verified by patching `pathlib.Path.write_*` and `builtins.open` in write mode to raise; the test suite passes anyway).
+16. `layersense_controller/src/layersense_controller/watcher.py` raises `NotImplementedError` on startup with a message pointing at Step 7 (verified by test).
+17. Two simultaneous identical-hash renders are deduped by `RenewableLock` keyed `layersense:lock:render:{effective_hash}`; only one `manim` subprocess invocation occurs (verified by a `subprocess.run` spy in an integration test).
+18. `RenewableLock` heartbeat extends TTL during a simulated long render (verified by an integration test that holds the lock past initial `ttl_ms` and observes the key still present).
+19. `RenderControllerSettings` exposes `render_lock_ttl_ms`, `render_lock_heartbeat_interval_ms`, `render_lock_acquire_timeout_ms` as module-level defaults (per user preference, not as env-only fields).
+20. A `_default` project row exists after first `POST /render` with no prior project; subsequent calls reuse it (idempotency verified).
+21. `uv run --all-packages pytest -m unit` passes.
+22. `uv run --all-packages pytest -m integration` passes.
+23. `just e2e` passes against the local Docker stack.
+24. `just test-e2e` passes (the assistant-friendly ephemeral compose run).
+25. Coverage for `layersense_controller/src/**` does not regress; the `artifacts.py` façade is ≥ 90% covered.
+26. `just lint` passes.
+27. `docker-compose.yml` no longer mounts `./layersense_artifacts/code` on `agent` or `controller`. Only the storage volume is mounted.
+28. After a fresh `just db_reset && just docker`, the system handles `generate → render → preview → final` end-to-end and writes blobs under `layersense_artifacts/storage/renders/{hash}/{preview,final}.mp4`.
+29. README and ROADMAP no longer reference `cache/index.json`, `LAYERSENSE_SCENES_DIR`, or the legacy `scenes/<project>/<preview|final>/` tree.
+30. `layersense_persistence` is the only writer to the `render` and `scene` tables. Verified by AST/grep: no other package imports `layersense_persistence.models`.
 
 ---
 
@@ -329,38 +448,46 @@ If you want strict dedup of in-flight renders, add a Redis lock keyed `layersens
 
 | Risk | Mitigation |
 |---|---|
-| Watcher flow breaks because `scenes_dir` is gone | Watcher is documented as deferred. Add a clear `NotImplementedError` raise on watcher startup with a pointer to "watcher needs project-aware redesign in Step 7". Tests for watcher are skipped, not deleted. |
+| Watcher flow breaks because `scenes_dir` is gone | Watcher is **hard-disabled** in PR 3b: startup raises `NotImplementedError` with a Step-7 pointer. Watcher tests are `pytest.skip`-ped, not deleted. Project-aware redesign lands in Step 7. |
 | Manim CLI requires a real on-disk path; per-render temp workdir adds a new failure surface | The `materialize_scene_source_for_manim` context manager owns workdir lifecycle with `tempfile.TemporaryDirectory`. Existing render-runtime test coverage catches mishandling. |
-| Two `Render` rows pointing at the same blob keys; deletion of one row would orphan the other | Phrase deletion at the `RendersRepository` level as "delete row only", never "delete blob". Object store cleanup is explicit GC, not row-driven. Out of scope here; not implemented in this PR. |
-| Taskiq worker container does not see the same object-store volume as the API container | Compose mounts `./layersense_artifacts/storage/` on `controller`, `controller-worker`, and `agent`. Verified by acceptance criterion 10 + the e2e test. |
-| Implicit `_default` project shim leaks into Step 4's design | Step 4's first task is "delete the shim, replace with explicit project CRUD". Document this at the shim's call site with a TODO referencing Step 4. |
-| Cassette-backed agent tests churn because response shape changed | One-time cassette refresh via `just test_python_integration_refresh`. Expected; called out in PR description. |
+| Two `Render` rows pointing at the same blob keys; deletion of one row would orphan the other | Phrase deletion at the `RendersRepository` level as "delete row only", never "delete blob". Object store cleanup is explicit GC, not row-driven. Out of scope here; not implemented in PR 3b. |
+| Taskiq worker container does not see the same object-store volume as the API container | Compose mounts `./layersense_artifacts/storage/` on `controller` and `controller-worker`. The agent has no storage mount (by design — agent has no storage awareness). Verified by acceptance criterion 27 + the e2e test. |
+| `_default` project shim leaks into Step 4's design | Wipe migration `0003_drop_default_project_shim.py` lands as Step 4's first commit per `_default shim cleanup` section. PR 3b leaves a `# TODO(step-4)` grep anchor at the shim's call site. |
+| `RenewableLock` heartbeat fires too slowly under scheduler pressure; lock TTL drains | Defaults give 3x margin (`heartbeat_interval_ms=10_000` vs `ttl_ms=30_000`). `RenewableLock.__aexit__` is CAS-safe — a TTL-drained lock cannot be released by a foreign holder. Worst case: two workers double-render identical content into the same content-addressed key. No corruption. |
+| Cassette-backed agent tests churn because response shape changed | One-time cassette refresh via `just test_python_integration_refresh`. Expected; called out in PR 3b description. |
 
 ---
 
 ## Estimated shape
 
-Larger PR than Steps 1 or 2 — this is the substrate change.
+Two PRs (3a → 3b) per the "Delivery split" section above.
 
-- `layersense_storage` new package: ~400 LOC src + ~400 LOC tests.
-- `layersense_controller` edits: ~300 LOC delta (delete cache.py, add artifacts.py, edit router/render/render_tasks/render_runtime/config).
+**PR 3a — `layersense_storage` package:**
+- ~400 LOC src + ~400 LOC tests.
+- No edits to other packages, frontend, compose, or docs.
+- Self-contained library landing. Reviewable in isolation.
+
+**PR 3b — controller wiring + breaking contract + watcher disable + `_default` shim + `RenewableLock` callsite:**
+- `layersense_controller` edits: ~350 LOC delta (delete `cache.py`, add `artifacts.py`, edit `router.py` / `render.py` / `render_tasks.py` / `render_runtime.py` / `config.py`, wire `RenewableLock`, hard-disable watcher).
 - `layersense_agent` edits: ~80 LOC delta.
-- Test edits across both backend packages: ~300 LOC delta plus cassette refresh.
+- Frontend edits: ~30 LOC mechanical.
+- Test edits across both backend packages: ~400 LOC delta plus cassette refresh.
 - Docs: ~50 lines across README + ROADMAP.
-
-Total: roughly 1500 LOC delta, mostly mechanical once the design lands. One PR or split into two (storage package alone, then wiring) is acceptable. Recommend one PR for review coherence.
+- Total: ~1100 LOC delta. Coordinated breaking change; one atomic commit for the contract flip.
 
 ---
 
 ## Assumptions
 
 1. Step 2 lands first or in lockstep. This plan assumes `layersense_persistence` exists with the schema as written.
-2. Step 1 lands before this. The Redis lock primitive is reused for `layersense:lock:render:{hash}`.
+2. Step 1 lands before this. Both `redis_lock` and the new `RenewableLock` primitive are reused — `RenewableLock` is the heartbeat-renewed mutex around the worker entrypoint per `Render dedup with heartbeat`.
 3. `LAYERSENSE_STORAGE_ROOT` defaulting to `./layersense_artifacts/storage/` is fine. Confirmed.
-4. The `_default` project shim is acceptable for one step. It exists only because Step 4 hasn't introduced explicit project/scene CRUD yet.
-5. Watcher gets disabled (raise on startup) rather than maintained through this transition. It comes back in Step 7 as part of the agent-tier-2 design.
+4. The `_default` project shim is acceptable for one step. It exists only because Step 4 hasn't introduced explicit project/scene CRUD yet, and is wiped (not migrated) by Step 4's first commit per `_default shim cleanup`.
+5. Watcher is **hard-disabled** (raise on startup) rather than maintained through this transition. It comes back in Step 7 as part of the agent-tier-2 design.
 6. Cassette refresh on agent VCR tests is acceptable. The response shape changes (`source_code` instead of `scene_path`).
 7. The agent returns raw source as a string in HTTP JSON. Manim files are 1–10 KB; HTTP transport is trivial. Confirmed (Option C, C1a).
 8. The browser still talks to both agent and controller in this step. Step 4 retires the browser→agent direct call by introducing `POST /scenes/{id}/generate` on the controller as the single entry point. Holding the browser→agent call here keeps the PR scoped.
+9. The `/render` HTTP-contract break is a hard cutover with no dual-shape support — see `Agent ↔ Controller contract change (BREAKING)`. Single-user dev stage; no external clients to migrate.
+10. `RenewableLock` config (`render_lock_ttl_ms`, `render_lock_heartbeat_interval_ms`, `render_lock_acquire_timeout_ms`) lives as module-level defaults on `RenderControllerSettings`, per user preference for module constants over env-only fields. Tunable via env if needed; not required for default operation.
 
 → Correct any of these or I proceed to Step 4 (frontend revamp + explicit project/scene CRUD + Option C orchestration), which removes the `_default` shim **and** moves the agent call server-side so the browser only talks to the controller.

@@ -1,6 +1,6 @@
 # S3-Compatible ObjectStore Backend — Implementation Plan
 
-**Status:** Proposed (not yet scheduled)
+**Status:** Proposed (not yet scheduled). Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. **The S3 backend is opt-in; the LocalFS backend remains the default and only production path.** This step exists to keep the `ObjectStore` abstraction honest (exercised by a second backend) and to unblock an opt-in dev-container path against RustFS/Garage/R2. Substantive BLOCKING audit findings (SigV4 host rewrite, redirect-vs-stream contract leak) are not addressed by this normalization pass and remain open for a focused amendment.
 **Step in build order:** 8 of 9
 **Depends on:** Step 3 (`layersense_storage` + `LocalFSObjectStore`) merged and stable; Steps 4–7 merged (the key layout and artifact-serving routes must be in their final post-Step-4 shape before this lands)
 **Unblocks:** Step 9 (OpenCode-style agentic runtime, speculative); hosted deployment; multi-machine rendering

@@ -1,6 +1,6 @@
 # OpenCode-Style Agentic Runtime — Decision Plan
 
-**Status:** Speculative — decision plan, not implementation plan
+**Status:** Speculative — decision plan, not implementation plan. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. The metrics sidecar at `renders/{content_hash}/metrics.json` referenced in §"Why this step" requires Step 7 to ship a metrics instrumentation slice; that work is not currently in Step 7's plan and remains an open dependency.
 **Step in build order:** 9 of 9
 **Depends on:** Step 7 (multi-file projects + components library, Agent Tier 2) — must be in real use before this decision has inputs
 **Unblocks:** nothing in the current migration; a "proceed" decision opens a new implementation track outside this 9-step plan

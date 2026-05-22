@@ -1,6 +1,6 @@
 # Multi-File Projects + Components Library (Agent Tier 2) — Implementation Plan
 
-**Status:** Proposed
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Migration number is `0006` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006). This step's `projects/{project_id}/...` ObjectStore tree is the mutable working copy; it **coexists with** the existing `renders/{content_hash}/...` immutable snapshot tree (per overview "Storage model"). It does not replace it. Open architectural question DQ1 (agent tool surface vs. inline `FileBundle`) is unresolved — decide before implementation.
 **Step in build order:** 7 of 9
 **Depends on:** Step 2 (`layersense_persistence`), Step 3 (`layersense_storage` + ObjectStore), Step 4 (frontend revamp + controller orchestration), Step 5 (agent refinement), Step 6 (project export)
 **Unblocks:** Step 8 (S3-compatible ObjectStore backend), Step 9 (OpenCode-style agentic runtime, speculative)
@@ -108,7 +108,7 @@ def project_scene_key(project_id: str, scene_id: str) -> str:
 One row per component file, current-state-only. No history; the agent prompt is the history.
 
 ```sql
--- Migration: 0004_add_component_and_bundle_manifest.py
+-- Migration: 0006_add_component_and_bundle_manifest.py
 
 CREATE TABLE component (
     id              TEXT PRIMARY KEY,           -- uuid4
@@ -444,7 +444,7 @@ The `Component` table has one row per `(project_id, relative_path)`. Each agent 
 - `src/layersense_persistence/models.py` — add `Component` ORM model.
 - `src/layersense_persistence/repositories/components.py` — `ComponentsRepository` with `upsert`, `get`, `list_by_project`, `delete`.
 - `src/layersense_persistence/schemas.py` — add `ComponentRead`, `ComponentCreate`, `ComponentUpdate` DTOs.
-- `migrations/versions/0004_add_component_and_bundle_manifest.py` — adds `component` table, `render.bundle_manifest_json`, `project.python_package_name`.
+- `migrations/versions/0006_add_component_and_bundle_manifest.py` — adds `component` table, `render.bundle_manifest_json`, `project.python_package_name`.
 - `tests/unit/test_repositories_components.py`
 
 **`layersense_storage/`**

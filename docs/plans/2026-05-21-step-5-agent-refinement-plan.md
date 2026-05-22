@@ -1,6 +1,6 @@
 # Agent Refinement (Tier 1) — Implementation Plan
 
-**Status:** Proposed
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Canonical source-key form: `renders/{content_hash}/source.py`. Migration number is `0004` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006).
 **Step in build order:** 5 of 9
 **Depends on:** Step 4 (`POST /api/v1/scenes/{id}/generate`, controller-as-orchestrator, `parent_render_id` column in `Render`) merged
 **Unblocks:** Step 6 (project export), Step 7 (multi-file project + agent Tier 2)
@@ -179,7 +179,7 @@ One new column on `Render`:
 ALTER TABLE render ADD COLUMN refinement_prompt TEXT;
 ```
 
-Migration: `0004_add_render_refinement_prompt.py` (or fold into `0003` if not yet finalized).
+Migration: `0004_add_render_refinement_prompt.py`.
 
 `parent_render_id` already exists in the Step 2 schema (`FK Render NULL (SET NULL)`). No change needed.
 
@@ -451,7 +451,7 @@ Nothing deleted in this step.
 | Long-poll response shape change (`parent_render_id`, `parent_content_hash`) breaks existing frontend code | Fields are additive. Existing frontend code ignores unknown fields. The `types.ts` extension is backward compatible. |
 | Cassette churn on agent VCR tests (frames-aware prompt upgrade changes the LLM payload) | One-time cassette refresh via `just test_python_integration_refresh`. Expected; called out in PR description. |
 | Refinement chain depth grows unbounded in the DB | No concern for single-user. Each render is a new row; the chain is navigable via `parent_render_id`. No GC needed at this scale. |
-| Worker reads `previous_render.scene_py_artifact_key` but the key uses the old Step 3 key layout (`scenes/{scene_id}/source/{hash}.py`) vs. the Step 4 layout (`renders/{hash}/source.py`) | The overview's canonical key layout uses `renders/{content_hash}/source.py`. Step 3's plan uses the same. Confirm the key layout is consistent before implementing. If there's a discrepancy, the `keys.py` helper is the single source of truth — fix it there. |
+| Worker reads `previous_render.scene_py_artifact_key` and the layout must be stable | Canonical key layout is `renders/{content_hash}/source.py` (per the normalized overview). `keys.py` in `layersense_storage` is the single source of truth — callers never hand-format keys. |
 
 ---
 

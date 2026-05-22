@@ -1,6 +1,6 @@
 # LayerSense Architecture Expansion — Overview
 
-**Status:** Living document, written 2026-05-21 to anchor a multi-step architecture migration.
+**Status:** Living document, written 2026-05-21 to anchor a multi-step architecture migration. Normalized 2026-05-21 to make this file canon over the per-step plans (see "Provenance" entry 6).
 **Audience:** Any agent or developer picking up this work cold.
 **Reading time:** ~15 minutes. Read this before touching any plan under `docs/plans/2026-05-21-*.md`.
 
@@ -8,7 +8,7 @@
 
 ## Purpose of this document
 
-LayerSense is mid-migration from a proof-of-concept architecture to a substrate that can support a real Manim-YouTube-production workflow for a single developer user. The migration is broken into 9 sequenced steps (4 currently planned in detail, 5 outlined). This document captures the **whole picture** so that:
+LayerSense is mid-migration from a proof-of-concept architecture to a substrate that can support a real Manim-YouTube-production workflow for a single developer user. The migration is broken into 9 sequenced steps, each with a written plan file under `docs/plans/2026-05-21-*.md`. This document captures the **whole picture** so that:
 
 - A new agent session can pick up any step and understand how it fits the whole.
 - The user (Mathias) can return to this work after a break without re-deriving the design.
@@ -85,7 +85,7 @@ These three rules are what the Option C debate (see "Key design decisions" below
 
 ## Data model (target)
 
-Lives in a new uv workspace package: `layersense_persistence`. SQLite, single-writer (controller), WAL mode. Imported by `layersense_controller` only. Cross-service DTOs (Pydantic) are exposed in `layersense_persistence.schemas`.
+Lives in a new uv workspace package: `layersense_persistence`. SQLite, single-writer (controller), WAL mode. **Imported by `layersense_controller` only** (the agent has no DB access — Option C). Cross-service DTOs (Pydantic) are exposed in `layersense_persistence.schemas`.
 
 ```
 Project
@@ -119,8 +119,8 @@ Render
   scene_id        FK Scene (CASCADE)
   parent_render_id        FK Render NULL (SET NULL)  # for refinement chains, Step 5
   content_hash    TEXT NOT NULL                      # sha256(scene_py + cli_flags)
-  status          TEXT NOT NULL                      # queued | generating | preview_ready | final_ready | failed
-  scene_py_artifact_key   TEXT NOT NULL              # generated .py at render time
+  status          TEXT NOT NULL                      # generating | queued | preview_ready | final_ready | failed
+  scene_py_artifact_key   TEXT NULL                  # set after agent returns (nullable while status=generating)
   preview_artifact_key    TEXT NULL
   final_artifact_key      TEXT NULL
   log_artifact_key        TEXT NULL                  # Manim stdout/stderr
@@ -131,6 +131,8 @@ Render
   INDEX(scene_id, created_at DESC)
   INDEX(content_hash)
 ```
+
+**Schema notes on nullability:** `scene_py_artifact_key` is nullable to admit `status="generating"` (Render row created when the user clicks Generate, agent hasn't returned yet). It becomes non-null as soon as the agent response is persisted. `preview_artifact_key` is set at `preview_ready`; `final_artifact_key` and `log_artifact_key` at `final_ready`.
 
 **Schema invariants:**
 - `Frame` rows are **derived from Excalidraw scene state**, not authored independently. On `PATCH /scenes/{id}` the controller diffs `excalidraw_scene_json` against existing `Frame` rows: new frame ids → insert; missing → delete; existing → preserve `prompt_augmentation`, update `order_index`.
@@ -149,15 +151,22 @@ ObjectStore protocol:
   head(key), delete(key), list_prefix(prefix), url_for(key)
 ```
 
-**Canonical key layout:**
+**Canonical key layout** (this is the single source of truth — all per-step plan files cite this):
 
 ```
-scenes/{scene_id}/source/{content_hash}.py        # generated Manim source
+renders/{content_hash}/source.py                  # generated Manim source, immutable per hash
 renders/{content_hash}/preview.mp4                # rendered preview
 renders/{content_hash}/final.mp4                  # rendered final
 renders/{content_hash}/manim.log                  # captured worker stdout/stderr
-projects/{project_id}/assets/{asset_id}/{filename}  # reserved for Step 7
+renders/{content_hash}/thumbnail.png              # first-frame snapshot, set after preview
+projects/{project_id}/scenes/{scene_id}.py        # mutable current scene source (Step 7+, package-mode projects)
+projects/{project_id}/components/{name}.py        # reusable components (Step 7+)
+projects/{project_id}/assets/{asset_id}/{filename}  # binary assets (Step 7+)
 ```
+
+**Why content-addressed renders.** Everything for one render lives under one `renders/{content_hash}/` prefix. Two `Render` rows that converge on the same source bytes share the blobs for free (deduplication at the storage layer). The directory is trivially deletable and exportable as a unit.
+
+**Why a separate `projects/{project_id}/` tree (Step 7+).** The `renders/` tree stores immutable, per-render snapshots. The `projects/` tree stores the **mutable current state** of a project's source files — the working copy the agent reads and writes. Renders snapshot from working copy into the content-addressed `renders/` tree at render time. The two trees serve different purposes; they coexist.
 
 **Storage root:** `./layersense_artifacts/storage/` (default for `LAYERSENSE_STORAGE_ROOT`).
 
@@ -190,7 +199,7 @@ User clicks **Generate**.
                                → response: {scene_py_bytes, content_hash}
                                (agent does NOT write to ObjectStore)
 6. Worker (still in same task) - writes source to ObjectStore at
-                                 scenes/{scene_id}/source/{content_hash}.py
+                                 renders/{content_hash}/source.py
                                - looks up Render rows by (content_hash, cli_flags)
                                - cache hit + blobs present? mark final_ready, publish event, done
                                - cache miss? proceed to render
@@ -230,7 +239,7 @@ This split — `/generate` for "regenerate code from scratch and render", `/rend
 
 ## Migration: the 9-step plan
 
-Steps 1–4 have detailed plans written. Steps 5–9 are outlined here only.
+All nine steps have detailed plan files written. The summaries below are the canonical short version; defer to each plan file for the full design.
 
 ### Step 1: Redis-backed render lock — `2026-05-21-redis-render-lock-plan.md`
 
@@ -280,23 +289,27 @@ First user-visible payoff. Three-PR split recommended (controller API → flow r
 - The new generate endpoint is on the **controller**, not the agent. `POST /api/v1/scenes/{id}/generate` returns `{render_id, status}` immediately; the browser long-polls the existing `/render-jobs/{render_id}` endpoint.
 - The agent's `POST /api/v1/animation` keeps today's inline-payload shape, with no `scene_id` field. It is called server-to-server from the controller's Taskiq worker only.
 
-### Step 5: Agent refinement (Tier 1)
+### Step 5: Agent refinement (Tier 1) — `2026-05-21-step-5-agent-refinement-plan.md`
 
 Adds `POST /api/v1/scenes/{id}/refine` on the controller. Uses `parent_render_id` to chain. Agent receives the previous render's source + new prompt diff as inline context. No new agent infrastructure — same pure-function shape, richer payload.
 
-### Step 6: Project export
+### Step 6: Project export — `2026-05-21-step-6-project-export-plan.md`
 
 `POST /api/v1/projects/{id}/export` produces a downloadable zip containing all scene `.py` files, a manifest, and a generated `manim.cfg`. Cheap once Steps 2 + 3 + 4 are in.
 
-### Step 7: Multi-file project + components library (Agent Tier 2)
+### Step 7: Multi-file project + components library (Agent Tier 2) — `2026-05-21-step-7-multi-file-projects-and-components-plan.md`
 
-Project becomes a real directory on ObjectStore with `scenes/`, `components/`, `assets/`. Agent gains a constrained tool surface (`read_file`, `write_file`, `list_dir`, `run_render`) scoped to the project. Watcher comes back, project-aware.
+Project becomes a real directory on ObjectStore at `projects/{project_id}/` with `scenes/`, `components/`, `assets/`. Agent's response schema upgrades from a single `source_code` string to a `FileBundle` (list of files with relative paths) so it can emit reusable component modules alongside the scene file. Watcher comes back, project-aware.
 
-### Step 8: S3-compatible ObjectStore backend
+The mutable `projects/{project_id}/scenes/{scene_id}.py` working-copy tree coexists with the immutable `renders/{content_hash}/source.py` snapshot tree (see "Storage model" above). Renders snapshot the working copy at render time.
 
-`S3ObjectStore` impl added alongside `LocalFSObjectStore`. Routes flip to `RedirectResponse` for presigned URLs. Default stays local. Choice of backend (RustFS, Garage, etc.) deferred until there's a concrete reason to switch.
+**Open architectural question (DQ1 in the plan body):** whether the agent gains a constrained tool surface (`read_file`, `write_file`, `list_dir`, `run_render`) or stays pure-function with an inline `FileBundle` response. The Step 7 plan currently recommends inline `FileBundle` to preserve Option C; this overview deferred to the plan's recommendation. Decide before implementing Step 7.
 
-### Step 9: OpenCode-style agentic runtime (speculative)
+### Step 8: S3-compatible ObjectStore backend — `2026-05-21-step-8-s3-object-store-backend-plan.md`
+
+`S3ObjectStore` impl added alongside `LocalFSObjectStore`. **The local-FS backend remains the default and the only production path.** The S3 implementation is built so the abstraction is exercised by real code (not just typed against), and to unblock an opt-in dev-container path for ephemeral testing against RustFS/Garage/R2. No production adoption of S3 in this migration. See decision #5 below and §"What is explicitly NOT in scope".
+
+### Step 9: OpenCode-style agentic runtime (speculative) — `2026-05-21-step-9-opencode-runtime-evaluation-plan.md`
 
 Re-evaluate with empirical evidence from Tier 2 whether the tool surface needs a full code-agent runtime swap.
 
@@ -391,7 +404,7 @@ Per Mathias's preference. `cache_lock_ttl_ms`, `cache_lock_acquire_timeout_ms` a
   **Apply the amendments in this document's Step 4 section**: controller orchestrates the agent call, browser never calls the agent, new `/scenes/{id}/generate` endpoint on the controller.
 
 - **You are extending the architecture (Steps 5–9):**
-  no plan files exist yet. Write a new plan to `docs/plans/2026-05-{later-date}-step-{n}-{name}.md`. Use the outline in this document's "Migration" section as the starting point.
+  read the relevant plan file (`docs/plans/2026-05-21-step-{n}-*.md`). All nine plans exist. If you find drift between a plan file and this overview, **this overview wins** — apply the discrepancy as an in-place fix to the plan, log it under Provenance below.
 
 - **You are unsure why a decision was made:**
   search this document's "Key design decisions" section first. If not found, the decision was made informally and should be added here.
@@ -420,5 +433,7 @@ This document captures the architecture conversation between Mathias and the Sis
 3. **Build order derived:** Redis lock → persistence → ObjectStore → frontend/CRUD → refinement → export → multi-file projects → S3 backend → OpenCode (speculative).
 4. **Option C reached:** browser → controller → agent, with the agent as a pure function. Reversed an earlier draft where the agent owned ObjectStore writes.
 5. **Step 3 and Step 4 plans amended** to reflect Option C. See amendment sections in those steps above.
+6. **Normalization pass (2026-05-21, post-audit).** All nine plan files audited; per-plan drift surfaced in `docs/plans/2026-05-21-architecture-plans-audit.md`. This overview promoted to canonical source for: schema, key layout, S3 framing, Step 7 layout coexistence, status enum. Per-step plans amended to cite this file. Migration numbering normalized: Step 5 = 0004, Step 6 = 0005, Step 7 = 0006. Canonical source-key form chosen: `renders/{content_hash}/source.py` (free dedup, single prefix per render). Substantive BLOCKING fixes in individual plans (Step 3 contract, Step 4 race, Step 5 schema mismatch, Step 6 streaming, Step 7 split, Step 8 SigV4) deferred to focused per-step amendment passes.
+7. **Step 1 + Step 3 + Step 4 substantive amendment pass (2026-05-21).** Step 1 plan extended with `RenewableLock` (heartbeat-renewed long-lived mutex) so Step 3 has the primitive ready. Step 3 plan amended: delivery split into PRs 3a (storage package) and 3b (controller wiring); `/render` HTTP-contract break made explicit (`scene_path` → `source_code` + `content_hash`, hard cutover, no dual-shape support); watcher hard-disabled on startup with Step 7 redesign pointer; `RenewableLock` wired around the worker entrypoint with module-constant config (`render_lock_ttl_ms=30_000`, `render_lock_heartbeat_interval_ms=10_000`, `render_lock_acquire_timeout_ms=5_000`); `_default` shim cleanup boundary declared at Step 4. Step 4 plan amended: `_default` wipe via migration `0003_drop_default_project_shim.py` + companion idempotent blob-wipe script as first commit; `RenderJobSnapshot` hard schema cutover (`render_id` supersedes `job_id`, status enum unified to backend `Render.status`, `thumbnail_url` added); frame diff algorithm specified as hard-delete-on-disappear with duplicate-id `HTTP 422` collision rule and UX warning tooltip; `isSaving`-gated Generate clarified as race-prevention by construction (no `Render`-row scene-state snapshot fields); real frontend prop shapes reconciled (`Canvas` keeps imperative `forwardRef<CanvasHandle>` and gains additive `initialScene` + `onChange` props; `VideoPlayer` keeps URL-shaped props and adopts backend status enum; UX-shaped `VideoPlayerStatus` deleted). Outstanding BLOCKING items now limited to: Step 5 schema mismatch, Step 6 streaming scope, Step 7 split (DQ1 unresolved), Step 8 SigV4 host rewrite + redirect-vs-stream contract leak, Step 9 metrics-instrumentation dependency on Step 7.
 
 If you are extending this document, add a dated entry here.

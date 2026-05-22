@@ -1,8 +1,8 @@
 # Frontend Revamp + Project/Scene CRUD + Controller Orchestration — Implementation Plan
 
-**Status:** Proposed
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (overview is canonical for schema, key layout, and Option C boundaries). Amended 2026-05-21 to: (a) make `_default` shim wipe an explicit first-commit migration; (b) declare a hard-cutover schema break for `RenderJobSnapshot` (no back-compat); (c) specify the frame-diff algorithm as hard-delete-on-disappear with explicit collision rule; (d) reconcile real frontend prop shapes (`Canvas` gains an `onChange` callback; `VideoPlayer` keeps URL-shaped props; status vocabulary unifies to the backend `Render.status` enum across the wire); (e) clarify that `isSaving`-gated Generate eliminates the autosave race by construction, not by snapshotting.
 **Step in build order:** 4 of 9
-**Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`ObjectStore` + `cache.py` deletion) merged
+**Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`ObjectStore` + `cache.py` deletion + `_default` shim) merged
 **Unblocks:** Step 5 (agent refinement), Step 6 (project export)
 
 ---
@@ -15,7 +15,7 @@ This is the first user-visible payoff and the architectural keystone. After this
 - Projects and scenes are persistent. Closing the browser tab no longer loses work.
 - **The Controller is the orchestrator.** It is the only service the browser talks to. It owns the database, the object store, and the agent dispatch.
 - **The Agent is a stateless pure function.** It accepts an inline payload (Excalidraw JSON + prompt + frames), returns Manim source code. Nothing else. It has no awareness of Projects, Scenes, the database, or the object store.
-- The `_default` Project shim from Step 3 is **deleted**. Real `POST /projects` and `POST /projects/{id}/scenes` endpoints replace it.
+- The `_default` Project shim from Step 3 is **deleted** by a focused first-commit migration `0003_drop_default_project_shim.py` (see `_default shim wipe` below). Real `POST /projects` and `POST /projects/{id}/scenes` endpoints replace it.
 - Frames are minimally wired: schema and CRUD exist, the agent receives the structured frame array, the UI displays a frame list with `prompt_augmentation` per frame. Drag-to-reorder UX is deferred.
 
 This step does **not** change the agent's generation logic, the object store, or the rendering engine internals. It introduces project/scene CRUD on the controller, moves the agent call server-side, and rebuilds the frontend on top of the new API.
@@ -39,6 +39,50 @@ Browser ──► Controller ──► Agent
 - **Agent** is a pure function `(payload) → (source_code, content_hash)`. No DB, no ObjectStore, no controller awareness.
 
 The browser→agent direct call from Step 3 is **retired** in this step. The browser stops sending requests to `localhost:8000` entirely.
+
+---
+
+## `_default` shim wipe (first commit)
+
+Step 4's first commit is migration `migrations/versions/0003_drop_default_project_shim.py`, landing in `layersense_persistence`:
+
+```python
+# layersense_persistence/.../migrations/versions/0003_drop_default_project_shim.py
+
+def upgrade() -> None:
+    # 1. Collect render rows under _default for blob cleanup.
+    conn = op.get_bind()
+    keys_to_delete = conn.execute(text("""
+        SELECT r.scene_py_artifact_key, r.preview_artifact_key, r.final_artifact_key, r.log_artifact_key,
+               s.thumbnail_artifact_key
+        FROM render r
+        JOIN scene s ON s.id = r.scene_id
+        JOIN project p ON p.id = s.project_id
+        WHERE p.slug = '_default'
+    """)).all()
+
+    # 2. Delete the project row; ON DELETE CASCADE removes scene, frame, render rows.
+    op.execute(text("DELETE FROM project WHERE slug = '_default'"))
+
+    # 3. Blob wipe is performed by a one-shot offline helper invoked by the migration runner
+    #    (NOT inside the Alembic migration body itself — migrations stay DB-only).
+    #    See `scripts/wipe_default_shim_blobs.py`, invoked by `just db_migrate` after the migration applies.
+
+def downgrade() -> None:
+    raise NotImplementedError("_default shim wipe is one-way; restoring requires restoring blobs from backup")
+```
+
+**Companion offline script `scripts/wipe_default_shim_blobs.py`:**
+
+- Reads the list of artifact keys captured by the migration into a one-shot temporary table OR via a pre-migration `SELECT` exported to JSON in `layersense_artifacts/.migration_state/0003_default_keys.json`.
+- For each key, calls `ObjectStore.delete(key)`. Missing keys are skipped silently (idempotent).
+- Logs a one-line summary: `wiped N renders / M blobs from _default shim`.
+
+**Why split the DB delete from the blob delete:** Alembic migrations must be DB-only — running them inside a Docker `entrypoint` flow with object-store side effects is an anti-pattern (the migration cannot be replayed safely on a different storage root, e.g., when someone resets storage but not DB). The two-step shape — migration deletes rows; companion script deletes blobs — is recoverable and ordering-safe.
+
+**No data preservation.** The shim only ever held throwaway content from the Step 3 transition window. Anything you care about is re-generated via Step 4's real CRUD-driven flow.
+
+**Anti-resurrection guard:** acceptance criterion 1 below (`grep "_default"` returns zero) plus a SQL assertion in the e2e bootstrap: `SELECT COUNT(*) FROM project WHERE slug='_default'` must return 0 after `just db_reset && just docker`. Any creation path in the controller that would resurrect the shim is removed in the same first commit (the shim's call site from PR 3b is deleted).
 
 ---
 
@@ -106,7 +150,7 @@ POST   /api/v1/scenes/{scene_id}/generate      body: { cli_flags? }
 **Notes:**
 
 - **`PATCH /scenes/{id}` is the autosave target.** Partial body; only supplied fields are written.
-- **Frames are derived-but-persisted.** When `PATCH /scenes/{id}` updates `excalidraw_scene_json`, the controller diffs the Excalidraw frame elements against existing `frame` rows: new frame ids → insert; missing → delete; existing → preserve `prompt_augmentation`, update `order_index` to match Excalidraw scene order. Frame existence is normally Excalidraw-driven; the explicit Frame CRUD endpoints exist for tests and future tooling, with docstrings flagging them as internal.
+- **Frames are derived-but-persisted.** When `PATCH /scenes/{id}` updates `excalidraw_scene_json`, the controller runs the frame-diff algorithm specified in `### Frame diff algorithm` below. Frame existence is normally Excalidraw-driven; the explicit Frame CRUD endpoints exist for tests and future tooling, with docstrings flagging them as internal.
 - **`POST /scenes/{id}/generate` returns immediately** with a `render_id`. The agent call happens server-side, asynchronously, inside a Taskiq task (per C2a). The browser never holds an open connection waiting for the LLM.
 - **`render_id` is the long-poll handle** for the entire `(generate, render)` lifecycle. New states: `generating` (agent call in flight) → `queued` → `preview_ready` → `final_ready` → `failed`.
 
@@ -212,26 +256,56 @@ layersense_frontend/src/
     ProjectDetailRoute.tsx      # scene list / storyboard view
     SceneEditorRoute.tsx        # the existing 3-pane UI, persistence-backed
   components/
-    Canvas.tsx                  # existing; receives initial scene + onChange
-    VideoPlayer.tsx             # existing; receives content_hash
-    FrameList.tsx               # new; right-rail panel
+    Canvas.tsx                  # existing imperative forwardRef shape preserved;
+                                # gains an optional `onChange(snapshot)` prop wired to
+                                # Excalidraw's onChange. SceneEditorRoute uses onChange
+                                # (reactive autosave path) and keeps the imperative
+                                # getSceneSnapshot() handle for the Generate click.
+    VideoPlayer.tsx             # existing URL-shaped props preserved
+                                # ({ previewUrl, finalUrl, errorMessage, status }) +
+                                # adds `thumbnailUrl`. status type changes from the
+                                # UX-shaped enum to the backend RenderJobSnapshot['status'].
+    FrameList.tsx               # new; right-rail panel; warns on deletion
     SceneCard.tsx               # new; thumbnail + name in project detail
     ProjectCard.tsx             # new; tile in project list
   hooks/
-    useRenderJob.ts             # existing; minor edits for new states (generating, failed)
+    useRenderJob.ts             # existing version-based long-poll preserved;
+                                # terminal-state check updated to ('final_ready' | 'failed')
     useDebouncedAutosave.ts     # new
     useScene.ts                 # new
     useProjects.ts              # new
     useProject.ts               # new
   api.ts                        # extended with project/scene/frame/generate endpoints
                                 # NB: the browser→agent direct call is removed entirely
-  types.ts                      # extended with Project, Scene, Frame DTOs
+  types.ts                      # extended with Project, Scene, Frame DTOs;
+                                # RenderJobSnapshot rewritten per "Render-job snapshot —
+                                # hard schema cutover"; VideoPlayerStatus type DELETED.
 ```
 
 **Deliberately small dep additions:**
 
 - `react-router-dom` (only new runtime dep).
 - No data-fetching library, no state management library, no UI component library.
+
+**Canvas API change (additive, ref-preserving):**
+
+```ts
+export type CanvasHandle = {
+  getSceneSnapshot: () => ExcalidrawSceneSnapshot
+}
+
+export type CanvasProps = {
+  initialScene?: ExcalidrawSceneSnapshot           // applied on mount via excalidrawAPI.updateScene
+  onChange?: (snapshot: ExcalidrawSceneSnapshot) => void
+}
+
+export const Canvas = forwardRef<CanvasHandle, CanvasProps>(...)
+```
+
+- `initialScene` lets SceneEditorRoute hydrate the canvas from `GET /scenes/{id}`.
+- `onChange` is the autosave entry point; `useDebouncedAutosave` consumes its snapshots.
+- The existing imperative `getSceneSnapshot()` handle stays — the Generate button uses it to capture the exact moment-of-click state (belt and braces with `isSaving`-gated Generate).
+- Existing Canvas tests are updated to cover both the imperative handle and the new callback.
 
 ### Routing
 
@@ -251,15 +325,130 @@ layersense_frontend/src/
 - 800ms debounce on Excalidraw `onChange` and prompt textarea changes.
 - One in-flight `PATCH` per scene; if a new save is queued while one is in flight, queue exactly one (drop intermediate).
 - On `PATCH` failure: small "save failed, will retry" indicator; retry once after 2s; on second failure surface a persistent banner.
-- **Generate is disabled while `isSaving` is true OR while `lastSavedAt` is older than the most recent local edit.** This eliminates the autosave race that motivated Option C.
+- **Generate is disabled while `isSaving` is true OR while `lastSavedAt` is older than the most recent local edit.** This eliminates the autosave race **by construction**: the click event for Generate cannot fire while any save is in flight or any unsaved edit exists, so at click time `DB state == client state`. The worker reads scene state at click + ε on the same row; any user edit after Generate click is by definition a new render's input. **No scene-state snapshot fields on `Render` are needed**; the audit's "race" was a misreading of the gating order.
 - Last-write-wins. No version field, no `If-Match`.
+
+### Render-job snapshot — hard schema cutover
+
+`RenderJobSnapshot` (the long-poll payload returned by `GET /render-jobs/{render_id}`) changes shape in this step. Hard cutover, no dual-shape support — same rationale as Step 3's `/render` contract break: single-user dev stage, frontend and backend land in the same monorepo PR, e2e covers it.
+
+**Before this step** (today's controller):
+
+```ts
+type RenderJobSnapshot = {
+  job_id: string                         // synthetic job_id derived from content_hash
+  status: 'queued' | 'rendering' | 'succeeded' | 'failed'
+  version: number                        // monotonic version for delta long-poll
+  preview_url: string | null
+  final_url: string | null
+  error: string | null
+}
+```
+
+**After this step:**
+
+```ts
+type RenderJobSnapshot = {
+  render_id: string                      // canonical Render.id from the DB; supersedes job_id
+  scene_id: string                       // for frontend routing / cache invalidation
+  content_hash: string                   // for /artifacts/by-hash routing
+  status: 'generating' | 'queued' | 'preview_ready' | 'final_ready' | 'failed'
+  version: number                        // unchanged contract; monotonic per render_id
+  preview_url: string | null             // resolved by controller from preview_artifact_key
+  final_url: string | null               // resolved by controller from final_artifact_key
+  thumbnail_url: string | null           // resolved from scene.thumbnail_artifact_key once set
+  error_message: string | null           // renamed from `error` for clarity
+}
+```
+
+**Breaking deltas:**
+
+- `job_id` → `render_id`. The DB `Render.id` *is* the handle.
+- `status` adopts the backend `Render.status` enum verbatim. `succeeded` → `final_ready`. `rendering` is split into `queued | preview_ready` (intermediate state is observable).
+- `generating` is new (covers the agent-call-in-flight window introduced by `POST /scenes/{id}/generate`).
+- `scene_id`, `content_hash`, `thumbnail_url` are new.
+- `error` → `error_message`.
+
+**Frontend rename impact** (all in `layersense_frontend/src/`):
+
+- `types.ts` — replace `RenderJobSnapshot` with the new shape; the `VideoPlayerStatus` UX type is **deleted**; `VideoPlayer` props use the backend status directly.
+- `hooks/useRenderJob.ts` — terminal-state check changes from `status === 'succeeded' | 'failed'` to `status === 'final_ready' | 'failed'`. The `version`-based long-poll API contract on the controller side is preserved (`afterVersion`, `waitSeconds`).
+- `components/VideoPlayer.tsx` — props become `{ previewUrl, finalUrl, thumbnailUrl, errorMessage, status: RenderJobSnapshot['status'] }`. The `statusLabel` map is rewritten against the new enum:
+  - `generating` → "Generating scene from prompt..."
+  - `queued` → "Queueing render..."
+  - `preview_ready` → "Preview ready. Waiting for final render..."
+  - `final_ready` → "Final render ready"
+  - `failed` → "Error"
+- `App.tsx` / new routes — pass through the new field names. No semantic change in flow.
+
+**Tests:**
+
+- Existing `useRenderJob.test.ts` and `VideoPlayer.test.tsx` are updated in the same PR. Snapshots regenerated.
+- A new vitest case verifies that an incoming snapshot with a legacy `status: 'succeeded'` value fails type-narrowing in CI (proves the cutover is enforced).
+
+**Why no dual-shape support:** the only consumers of `RenderJobSnapshot` are the frontend in the same monorepo and the e2e test. Both are updated atomically. A transition window adds zero value and doubles the surface.
+
+### Frame diff algorithm
+
+Triggered on `PATCH /scenes/{id}` whenever the request body includes `excalidraw_scene_json`. The algorithm runs inside the same DB transaction as the scene update.
+
+**Inputs:**
+- `incoming_frames: list[ExcalidrawFrameElement]` — frame elements in `excalidraw_scene_json.elements`, in their array order. Each has a stable Excalidraw `id` (string) and may have `name` / other Excalidraw metadata.
+- `existing_rows: list[Frame]` — `SELECT * FROM frame WHERE scene_id = :scene_id ORDER BY order_index ASC`.
+
+**Behavior (hard-delete v1, locked decision):**
+
+```
+incoming_ids = [e.id for e in incoming_frames]
+existing_ids = [r.excalidraw_frame_id for r in existing_rows]
+
+# 1. Hard-delete: any existing row whose excalidraw_frame_id is not in incoming_ids
+#    is DELETEd. ON DELETE CASCADE removes any future per-frame artifacts.
+#    Any prompt_augmentation text on the deleted row is GONE. No rescue, no archive.
+to_delete = [r for r in existing_rows if r.excalidraw_frame_id not in set(incoming_ids)]
+for r in to_delete: session.delete(r)
+
+# 2. Insert: any incoming frame id not in existing_ids becomes a new Frame row.
+existing_by_eid = {r.excalidraw_frame_id: r for r in existing_rows}
+for new_index, e in enumerate(incoming_frames):
+    if e.id not in existing_by_eid:
+        session.add(Frame(
+            id=uuid4(),
+            scene_id=scene_id,
+            excalidraw_frame_id=e.id,
+            order_index=new_index,
+            prompt_augmentation="",   # default; user fills it later via FrameList
+            created_at=now(),
+        ))
+
+# 3. Reorder: any retained row whose new index differs from its current order_index
+#    is updated. prompt_augmentation is preserved verbatim.
+for new_index, e in enumerate(incoming_frames):
+    if e.id in existing_by_eid:
+        row = existing_by_eid[e.id]
+        if row.order_index != new_index:
+            row.order_index = new_index
+            row.updated_at = now()
+```
+
+**Collision rule (Excalidraw duplicates a frame id — should not happen, but the spec must cover it):**
+
+- If `incoming_frames` contains two elements with the same `excalidraw_frame_id`, the controller responds `HTTP 422` with `detail: "duplicate excalidraw frame id in payload: <id>"`. No partial write — the entire `PATCH /scenes/{id}` aborts. Excalidraw frame ids are nanoid-shaped and collision-free in practice; this guard exists to fail loud rather than silently corrupting `order_index`.
+
+**Atomicity:**
+- All three phases run in the same SQLAlchemy session and commit together. A failure in any phase rolls the whole `PATCH` back; the client retries.
+
+**Explicitly out of scope (deferred, possibly never):**
+
+- Soft-delete / `deleted_at` column on `Frame`. Would let "undo frame delete in Excalidraw" recover the row. Not added: single-user, dev stage, frame deletes are user-driven and the user can re-author augmentation text trivially.
+- Archiving deleted frames' `prompt_augmentation` to a per-project `deleted_frame_notes` log. Considered and rejected: pollutes the schema for a once-per-blue-moon convenience.
+- Detecting "frame rename" vs "delete + insert" (Excalidraw might reassign ids on certain edits). Not detected; treated as delete + insert. If this turns out to be a real pattern in Excalidraw's behavior, revisit with concrete repro.
+
+**User-visible warning:** the SceneEditor surfaces a tooltip on the FrameList: *"Deleting a frame in the canvas permanently removes its prompt augmentation."* One small UX line; appears next to the FrameList header.
 
 ### Persistence schema deltas
 
-Step 2's schema covers everything except:
-
-- **`scene.thumbnail_artifact_key TEXT NULL`** — set by the worker after preview render. Migration `0003_add_scene_thumbnail.py` (or fold into 0002 if not yet finalized).
-- **`render.status` enum gains `"generating"`** — new pre-render state. No migration needed (status is TEXT); update controller's allowed-values check and test assertions.
+**None.** The normalized Step 2 schema (per overview) already includes `scene.thumbnail_artifact_key` and the `generating` status value. If you find them missing because Step 2 shipped before normalization, add a focused migration in this PR; otherwise no schema work here.
 
 ---
 
@@ -371,24 +560,30 @@ For `test_agent_client.py` (unit):
 
 ## Acceptance criteria
 
-1. `grep -rn "_default" layersense_controller/src/` returns no matches.
+1. `grep -rn "_default" layersense_controller/src/ layersense_persistence/src/` returns no matches (the shim and its row are gone after migration `0003`).
 2. `grep -rn "localhost:8000\|http://agent" layersense_frontend/src/` returns no matches. Browser does not talk to the agent.
 3. `react-router-dom` is the only new runtime dependency in `layersense_frontend/package.json`.
 4. `uv run --all-packages pytest -m unit` and `-m integration` pass; coverage for new controller `api/*.py` ≥ 95%; `services/agent_client.py` ≥ 95%.
-5. `npm test` (vitest) passes; new hooks/components ≥ 90% covered.
+5. `npm test` (vitest) passes; new hooks/components ≥ 90% covered; updated `Canvas.test.tsx` covers the new `onChange` callback and `initialScene` hydration.
 6. `just e2e` passes against the local Docker stack with the rewritten e2e test.
 7. `just test-e2e` passes.
-8. `just lint` passes (Python + ESLint).
-9. After `just docker` from a clean state:
+8. `just lint` passes (Python + ESLint + tsc).
+9. After `just db_reset && just docker` from a clean state:
+   - `SELECT COUNT(*) FROM project WHERE slug='_default'` returns 0 (anti-resurrection guard).
    - `http://localhost:3000/` shows an empty project list with "New Project".
    - Creating a project, then a scene, persists across page reload.
    - Editing Excalidraw + prompt autosaves within ~1s of typing pause.
+   - Clicking Generate is disabled while `isSaving` is true; verified by a vitest case + an e2e probe.
    - Clicking Generate produces a render whose preview/final play.
    - Closing and reopening the tab restores the scene with its last-rendered video and thumbnail.
 10. README accurately describes the controller-as-orchestrator architecture.
 11. The agent's `POST /api/v1/animation` request schema is `{ prompt, excalidraw_scene_json, frames }` and response is `{ source_code, content_hash }`. Verified by AST/grep on Pydantic models.
 12. `POST /render` still exists (per C3a) but no frontend code references it. Verified by grep on `layersense_frontend/src/`.
 13. The agent does not import `layersense_persistence` or `layersense_storage`. Verified by grep.
+14. `RenderJobSnapshot` (Python + TypeScript) carries exactly `{ render_id, scene_id, content_hash, status, version, preview_url, final_url, thumbnail_url, error_message }`. No legacy fields (`job_id`, `error`, `succeeded`). Verified by Pydantic schema + vitest type test.
+15. `Frame` rows for a scene are deleted when their `excalidraw_frame_id` disappears from `excalidraw_scene_json` (verified by integration test covering insert, reorder, and hard-delete paths).
+16. `PATCH /scenes/{id}` with duplicate `excalidraw_frame_id`s in `excalidraw_scene_json.elements` returns `HTTP 422` and rolls back the entire transaction (verified by integration test).
+17. Migration `0003_drop_default_project_shim.py` is irreversible (`downgrade()` raises) and runs cleanly against a DB with a `_default` project containing scenes + renders; companion `scripts/wipe_default_shim_blobs.py` is idempotent on a missing-blob input.
 
 ---
 
@@ -398,11 +593,15 @@ For `test_agent_client.py` (unit):
 |---|---|
 | Long Taskiq task (agent + manim preview + manim final) holds a worker for minutes | Acceptable for single-user. If it bites, split per C2b — small refactor; the state machine on Render already accommodates intermediate states. |
 | Agent failure leaves Render in `generating` forever if the task crashes mid-flight before catching the error | Wrap the task body in a top-level `try/except/finally` that sets `status="failed"` on any unhandled exception. Verified by a fault-injection test. |
-| Frame diffing on autosave loses `prompt_augmentation` if user temporarily deletes a frame in Excalidraw to redraw | Documented behavior. Single-user; if it bites, add 30-day soft-delete on Frame in a follow-up. |
+| Frame diff hard-delete loses `prompt_augmentation` if user temporarily deletes a frame in Excalidraw to redraw | **Documented v1 behavior** (locked decision). The SceneEditor surfaces a one-line tooltip warning on FrameList. Single-user; if this turns into a real workflow pain, add 30-day soft-delete on `Frame` in a follow-up. |
+| `_default` shim wipe migration `0003` cannot be safely rerun if blobs were already deleted | Companion script `scripts/wipe_default_shim_blobs.py` is idempotent — `ObjectStore.delete()` on a missing key is a no-op. Migration `downgrade()` raises explicitly. |
+| `RenderJobSnapshot` schema break breaks long-lived browser tabs across deploy | Single-user dev; full-page reload after deploy is acceptable. Frontend version-check is out of scope. |
+| Frame diff fires on every Excalidraw `onChange` flush, generating many small DB transactions | The 800ms debounce on autosave consolidates `onChange` bursts; one `PATCH` per pause, one diff per `PATCH`. Negligible at single-user scale. |
+| Excalidraw assigns a *new* `excalidraw_frame_id` to a renamed/recreated frame, treated as delete + insert | Documented as a known edge case; behavior is hard-delete of the old row including augmentation. If observed in practice, revisit with a concrete repro. |
 | Frontend bundle growth from `react-router-dom` | ~10kb gzipped. Negligible. |
 | The frame CRUD endpoints invite confusion | Router docstrings flag them as internal. Open to suppressing them entirely on push-back. |
 | Cassette refresh churn on agent VCR tests (second time after Step 3) | One commit; called out in PR description. The agent's contract is finally stable after this step. |
-| Long single PR | Split rule: (a) controller API endpoints + agent contract change + agent client, (b) `/scenes/{id}/generate` orchestration task + e2e, (c) frontend revamp. Each is independently shippable; `just e2e` keeps passing throughout. **Recommendation: three PRs in order.** |
+| Long single PR | Split rule: (a) `_default` wipe migration + project/scene/frame CRUD endpoints + agent client + agent contract change, (b) `/scenes/{id}/generate` orchestration task + thumbnail capture + e2e, (c) frontend revamp + `RenderJobSnapshot` cutover. Each is independently shippable; `just e2e` keeps passing throughout. **Recommendation: three PRs in order.** |
 
 ---
 
@@ -427,6 +626,11 @@ Total: ~3800 LOC delta. Three-PR split recommended.
 6. The agent receives structured `frames` in this step but the prompt-construction *behavior* is a placeholder (concatenated augmentations) until Step 5.
 7. Including `scene.thumbnail_artifact_key` in this step is acceptable.
 8. The frame CRUD endpoints stay exposed but are documented as internal.
-9. Three-PR split.
+9. Three-PR split as listed in the Risks table's "Long single PR" row.
+10. `isSaving`-gated Generate is a sufficient race-prevention mechanism. No `Render`-row scene-state snapshot fields are introduced.
+11. Frame diff uses hard-delete on disappearance, no rescue, no archive. SceneEditor surfaces a one-line warning tooltip.
+12. `RenderJobSnapshot` hard cutover with no dual-shape support. Single-user dev; full-page reload after deploy is the migration path.
+13. Status vocabulary unifies to the backend `Render.status` enum across the wire. Frontend's UX-shaped `VideoPlayerStatus` enum is deleted; `VideoPlayer` consumes the backend enum directly and owns its own label mapping.
+14. `Canvas` keeps its imperative `forwardRef<CanvasHandle>` shape; new `initialScene` + `onChange` props are additive. Generate uses the imperative handle; autosave uses `onChange`.
 
 → Correct any of these or I proceed to Step 5 (agent refinement endpoint with `parent_render_id` chaining + structured frame-aware prompt construction). Step 5 is where the agent stops being one-shot — the controller calls the agent with the previous Render's source as additional context, and the agent's prompt-composition logic upgrades to use the structured `frames` field meaningfully.

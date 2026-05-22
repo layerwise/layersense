@@ -1,6 +1,6 @@
 # LayerSense Persistence Package — Implementation Plan
 
-**Status:** Proposed
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (canonical for schema and architecture).
 **Author:** Sisyphus (OpenCode session, 2026-05-21, Planning architecture and future directions for repo)
 **Scope:** Step 2 of the multi-step architecture revamp covering object storage, agent evolution, and frontend revamp.
 
@@ -41,7 +41,7 @@ The full agreed sequence after this conversation:
 
 ## Scope
 
-A new uv workspace member that owns the durable schema and exposes typed repositories. Imported by both `layersense_agent` and `layersense_controller`. No HTTP surface, no business logic — just persistence.
+A new uv workspace member that owns the durable schema and exposes typed repositories. **Imported by `layersense_controller` only** (per Option C, the agent has no DB access — see overview "Three rules"). Cross-service DTOs (Pydantic) live in `layersense_persistence.schemas` and are imported by `layersense_controller` for HTTP body shapes; the agent uses its own request/response models unaware of persistence.
 
 **Out of scope here:** API changes in agent/controller, frontend work, object store abstraction, render-lock migration. Each of those is a follow-up plan that depends on this one landing.
 
@@ -97,6 +97,7 @@ order_index              INTEGER NOT NULL
 prompt                   TEXT NOT NULL DEFAULT ''
 excalidraw_scene_json    TEXT NOT NULL DEFAULT '{}'   -- inline JSON, per decision
 current_render_id        TEXT REFERENCES render(id) ON DELETE SET NULL
+thumbnail_artifact_key   TEXT                          -- set by worker after preview render
 created_at               TEXT NOT NULL
 updated_at               TEXT NOT NULL
 UNIQUE (project_id, order_index)
@@ -118,10 +119,11 @@ id                       TEXT PRIMARY KEY
 scene_id                 TEXT NOT NULL REFERENCES scene(id) ON DELETE CASCADE
 parent_render_id         TEXT REFERENCES render(id) ON DELETE SET NULL
 content_hash             TEXT NOT NULL                       -- canonical hash of (scene_py + cli_flags)
-status                   TEXT NOT NULL                       -- queued | preview_ready | final_ready | failed
-preview_artifact_key     TEXT                                -- object-store key, nullable until ready
-final_artifact_key       TEXT                                -- object-store key, nullable until ready
-scene_py_artifact_key    TEXT NOT NULL                       -- the generated .py at render time
+status                   TEXT NOT NULL                       -- generating | queued | preview_ready | final_ready | failed
+scene_py_artifact_key    TEXT                                -- nullable while status=generating; set on agent response
+preview_artifact_key     TEXT                                -- nullable until preview_ready
+final_artifact_key       TEXT                                -- nullable until final_ready
+log_artifact_key         TEXT                                -- captured Manim stdout/stderr; set at final_ready or failed
 cli_flags_json           TEXT NOT NULL DEFAULT '{}'
 conversation_id          TEXT                                -- agent conversation that produced this
 error_message            TEXT
@@ -136,7 +138,9 @@ CREATE INDEX ix_render_content_hash ON render(content_hash);
 
 - **TEXT uuids, not autoincrement int.** Cross-service references survive DB rebuilds; safe for export/import.
 - **`current_render_id` is denormalized** (could be derived from latest `render` row). Worth it: avoids subquery on every scene fetch in the navigation UI.
-- **`scene_py_artifact_key` on Render, not Scene.** The generated `.py` is a render-time artifact, immutable, content-addressed; multiple renders of the same scene can have different generated code.
+- **`scene_py_artifact_key` on Render, not Scene.** The generated `.py` is a render-time artifact, immutable, content-addressed; multiple renders of the same scene can have different generated code. Nullable to admit `status="generating"` (Render row exists, agent hasn't returned yet); set as soon as the agent response is persisted.
+- **`log_artifact_key` on Render.** Captures Manim stdout/stderr. Set when the worker finishes (success or failure). `cache.py` had no equivalent and that hurt debugging.
+- **`scene.thumbnail_artifact_key`.** Set by the worker after preview render. Powers `SceneCard` thumbnails in the project detail view (Step 4).
 - **`status` as string enum, not lookup table.** Single-user, low cardinality, evolves with code; no value in normalizing.
 - **Timestamps as ISO8601 TEXT, not Julian.** Human-readable in `sqlite3` CLI, sortable lexicographically, no timezone surprises.
 - **No soft delete.** Cascade on project/scene delete. Single user, can recover from object store + git if needed.
@@ -193,7 +197,7 @@ Same shape for `ProjectsRepository`, `FramesRepository`, `RendersRepository`. Re
 
 - Root `pyproject.toml` — add `layersense_persistence` to `[tool.uv.workspace] members`.
 - `layersense_persistence/pyproject.toml` deps: `sqlalchemy>=2.0`, `alembic`, `pydantic>=2`, `pydantic-settings`. No `fastapi`, `taskiq`, or `httpx` — keep boundary-pure.
-- `layersense_agent` and `layersense_controller` add `layersense-persistence` as a workspace dep. They acquire **no** new external runtime deps from this step.
+- `layersense_controller` adds `layersense-persistence` as a workspace dep. **`layersense_agent` does not depend on this package** (Option C: agent is a pure function with no DB awareness).
 
 ## Justfile Additions
 
@@ -237,7 +241,7 @@ A reviewer can verify each of these directly:
 1. `just setup && just db_migrate` produces `./layersense_artifacts/db/layersense.sqlite` with the schema above; `sqlite3 ... ".schema"` matches `models.py`.
 2. `uv run --package layersense-persistence pytest -m unit` passes; `-m integration` passes.
 3. Coverage for `layersense_persistence/src/**` is ≥ 95% from unit + integration combined. Repositories are the bulk of the lines and they are trivially testable.
-4. `layersense_agent` and `layersense_controller` import `layersense_persistence.schemas` *only* (no ORM leakage). Verified by an AST/grep test in `tests/test_python_test_taxonomy.py` style: assert no `from layersense_persistence.models import` outside the persistence package.
+4. `layersense_controller` imports `layersense_persistence.schemas` only (no ORM leakage). `layersense_agent` does **not** import `layersense_persistence` at all (Option C). Both verified by an AST/grep test in `tests/test_python_test_taxonomy.py` style: assert no `from layersense_persistence.models import` outside the persistence package, and no `import layersense_persistence` anywhere under `layersense_agent/src/`.
 5. `just lint` passes.
 6. Existing `just test_python` still passes — no behavioral change to agent or controller in this step. The package is added but not yet wired into request paths.
 7. README "Repo Shape" updated to list the new workspace member; `docs/ROADMAP.md` gets a one-line entry under near-term focus.
@@ -257,7 +261,7 @@ Single focused PR. ~600–900 LOC across `layersense_persistence/src/**` and ~40
 
 1. Alembic is acceptable (no hand-rolled migration runner requested).
 2. `./layersense_artifacts/db/` as the SQLite location is fine. It sits alongside `cache/`, `code/`, `scenes/` — all under the existing host-mount, which means existing `docker-compose.yml` volume mounts already cover it.
-3. Both `layersense_agent` and `layersense_controller` will eventually import this package directly rather than going through HTTP. Single-user, single-host: shared SQLite file with WAL is the right answer; no DB-as-a-service needed.
+3. Only `layersense_controller` imports this package directly. `layersense_agent` stays a pure function and is unaware of the DB (Option C). Single-user, single-host: SQLite file with WAL written by the controller only; no DB-as-a-service needed.
 4. SQLAlchemy 2.0 typed ORM style is acceptable — modern, matches the "type everything" repo norm.
 
 → Correct any of these before implementation begins.
@@ -265,7 +269,7 @@ Single focused PR. ~600–900 LOC across `layersense_persistence/src/**` and ~40
 ## Open Follow-Ups After This Lands
 
 - Step 1 plan: Redis `SETNX` render-lock to retire the file-lock contention bug documented in `README.md` L197.
-- Step 3 plan: `ObjectStore` interface + `LocalFSObjectStore`; controller switches from `cache/index.json` to `RendersRepository`; agent writes generated `.py` through the object store and records the key on the Render row.
-- Step 4 plan: Frontend revamp (project navigation, scene editor, persistence-backed).
+- Step 3 plan: `ObjectStore` interface + `LocalFSObjectStore`; controller switches from `cache/index.json` to `RendersRepository`. **Per Option C, the controller (not the agent) writes generated `.py` bytes through the object store and records the key on the Render row.** The agent returns raw source bytes from `POST /api/v1/animation`; it never touches the object store.
+- Step 4 plan: Frontend revamp (project navigation, scene editor, persistence-backed). Browser stops calling the agent directly; controller orchestrates the agent call server-side.
 
 These three plans should be authored after this package is merged and exercised in at least one consuming service path.
