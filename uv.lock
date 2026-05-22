@@ -9,6 +9,7 @@ members = [
     "layersense-controller",
     "layersense-domain",
     "layersense-persistence",
+    "layersense-storage",
 ]
 
 [[package]]
@@ -894,6 +895,7 @@ dependencies = [
     { name = "layersense-controller" },
     { name = "layersense-domain" },
     { name = "layersense-persistence" },
+    { name = "layersense-storage" },
 ]
 
 [package.optional-dependencies]
@@ -927,6 +929,7 @@ requires-dist = [
     { name = "layersense-controller", editable = "layersense_controller" },
     { name = "layersense-domain", editable = "layersense_domain" },
     { name = "layersense-persistence", editable = "layersense_persistence" },
+    { name = "layersense-storage", editable = "layersense_storage" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = "==1.6.1" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = "==9.6.19" },
 ]
@@ -981,6 +984,7 @@ dependencies = [
     { name = "httpx" },
     { name = "layersense-domain" },
     { name = "layersense-persistence" },
+    { name = "layersense-storage" },
     { name = "manim" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -997,6 +1001,7 @@ requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
     { name = "layersense-domain", editable = "layersense_domain" },
     { name = "layersense-persistence", editable = "layersense_persistence" },
+    { name = "layersense-storage", editable = "layersense_storage" },
     { name = "manim", specifier = "==0.20.1" },
     { name = "pydantic", specifier = "==2.12.5" },
     { name = "pydantic-settings", specifier = "==2.10.1" },
@@ -1036,6 +1041,17 @@ requires-dist = [
     { name = "pydantic-settings", specifier = "==2.10.1" },
     { name = "sqlalchemy", specifier = "==2.0.44" },
 ]
+
+[[package]]
+name = "layersense-storage"
+version = "0.1.0"
+source = { editable = "layersense_storage" }
+dependencies = [
+    { name = "pydantic-settings" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic-settings", specifier = "==2.10.1" }]
 
 [[package]]
 name = "mako"

@@ -20,6 +20,7 @@ dependencies = [
     "layersense_controller",
     "layersense_domain",
     "layersense_persistence",
+    "layersense_storage",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +56,7 @@ layersense_agent = { workspace = true }
 layersense_controller = { workspace = true }
 layersense_domain = { workspace = true }
 layersense_persistence = { workspace = true }
+layersense_storage = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -62,6 +64,7 @@ members = [
     "layersense_controller",
     "layersense_domain",
     "layersense_persistence",
+    "layersense_storage",
 ]
 
 # ---- Tooling Configurations ----
@@ -118,6 +121,7 @@ testpaths = [
     "layersense_agent/tests",
     "layersense_controller/tests",
     "layersense_persistence/tests",
+    "layersense_storage/tests",
     "tests",
 ]
 minversion = "7.0"
