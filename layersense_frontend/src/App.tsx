@@ -85,7 +85,8 @@ function App() {
       const animation = await createAnimation({ prompt, scene: snapshot })
       setStatus('queueing_render')
       const renderResponse = await queueRender({
-        scene_path: animation.scene_path,
+        source_code: animation.source_code,
+        content_hash: animation.content_hash,
         conversation_id: animation.conversation_id,
         cli_flags: {},
       })

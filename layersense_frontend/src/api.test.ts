@@ -11,7 +11,7 @@ describe('api client', () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ conversation_id: 'conv-123', scene_path: '/tmp/scene.py' }), {
+        new Response(JSON.stringify({ conversation_id: 'conv-123', source_code: 'code', content_hash: 'hash' }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         }),
@@ -27,7 +27,7 @@ describe('api client', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: 'animate a circle', scene: { elements: [], appState: {}, files: {} } }),
     })
-    expect(response).toEqual({ conversation_id: 'conv-123', scene_path: '/tmp/scene.py' })
+    expect(response).toEqual({ conversation_id: 'conv-123', source_code: 'code', content_hash: 'hash' })
   })
 
   it('queueRender posts to controller and returns a job snapshot', async () => {
@@ -53,7 +53,7 @@ describe('api client', () => {
       )
 
     const response = await queueRender({
-      scene_path: '/tmp/scene.py',
+      source_code: 'code', content_hash: 'hash',
       conversation_id: 'conv-123',
       cli_flags: { quality: 'm' },
     })
@@ -62,7 +62,7 @@ describe('api client', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        scene_path: '/tmp/scene.py',
+        source_code: 'code', content_hash: 'hash',
         conversation_id: 'conv-123',
         cli_flags: { quality: 'm' },
       }),
@@ -119,7 +119,7 @@ describe('api client', () => {
     )
 
     await expect(
-      queueRender({ scene_path: '/tmp/scene.py', conversation_id: 'conv-123', cli_flags: {} }),
+      queueRender({ source_code: 'code', content_hash: 'hash', conversation_id: 'conv-123', cli_flags: {} }),
     ).rejects.toThrow('POST http://localhost:8001/render failed (500): internal error')
   })
 })

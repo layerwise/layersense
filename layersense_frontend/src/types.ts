@@ -15,7 +15,8 @@ export type AnimationRequest = {
 
 export type AnimationResponse = {
   conversation_id: string
-  scene_path: string
+  source_code: string
+  content_hash: string
 }
 
 export type CLIFlags = {
@@ -27,7 +28,8 @@ export type CLIFlags = {
 }
 
 export type RenderQueueRequest = {
-  scene_path: string
+  source_code: string
+  content_hash: string
   conversation_id: string
   cli_flags?: CLIFlags
 }

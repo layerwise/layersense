@@ -75,7 +75,7 @@ describe('App', () => {
 
     resolveCreate!({
       conversation_id: 'conv-1',
-      scene_path: '/tmp/scene.py',
+      source_code: 'code', content_hash: 'hash',
     })
     await waitFor(() => expect(mockQueueRender).toHaveBeenCalledTimes(1))
     expect(button.disabled).toBe(true)
@@ -99,7 +99,7 @@ describe('App', () => {
   it('sends prompt and scene snapshot to createAnimation', async () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
-      scene_path: '/tmp/scene.py',
+      source_code: 'code', content_hash: 'hash',
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
@@ -136,11 +136,11 @@ describe('App', () => {
     mockCreateAnimation
       .mockResolvedValueOnce({
         conversation_id: 'conv-1',
-        scene_path: '/tmp/scene-1.py',
+        source_code: 'code-1', content_hash: 'hash-1',
       })
       .mockResolvedValueOnce({
         conversation_id: 'conv-2',
-        scene_path: '/tmp/scene-2.py',
+        source_code: 'code-2', content_hash: 'hash-2',
       })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
@@ -162,7 +162,7 @@ describe('App', () => {
     fireEvent.click(button)
     await waitFor(() =>
       expect(mockQueueRender).toHaveBeenCalledWith({
-        scene_path: '/tmp/scene-1.py',
+        source_code: 'code-1', content_hash: 'hash-1',
         conversation_id: 'conv-1',
         cli_flags: {},
       }),
@@ -171,7 +171,7 @@ describe('App', () => {
     fireEvent.click(button)
     await waitFor(() =>
       expect(mockQueueRender).toHaveBeenCalledWith({
-        scene_path: '/tmp/scene-2.py',
+        source_code: 'code-2', content_hash: 'hash-2',
         conversation_id: 'conv-2',
         cli_flags: {},
       }),
@@ -181,7 +181,7 @@ describe('App', () => {
   it('queues renders with empty controller cli flags by default', async () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-null-bg',
-      scene_path: '/tmp/scene-null.py',
+      source_code: 'code-null', content_hash: 'hash-null',
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-null-bg',
@@ -202,7 +202,7 @@ describe('App', () => {
 
     await waitFor(() =>
       expect(mockQueueRender).toHaveBeenCalledWith({
-        scene_path: '/tmp/scene-null.py',
+        source_code: 'code-null', content_hash: 'hash-null',
         conversation_id: 'conv-null-bg',
         cli_flags: {},
       }),
@@ -212,7 +212,7 @@ describe('App', () => {
   it('shows preview then final as polled job snapshots advance', async () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
-      scene_path: '/tmp/scene.py',
+      source_code: 'code', content_hash: 'hash',
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
@@ -278,7 +278,7 @@ describe('App', () => {
   it('uses controller base URL for cached artifact video sources', async () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
-      scene_path: '/tmp/scene.py',
+      source_code: 'code', content_hash: 'hash',
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
@@ -306,7 +306,7 @@ describe('App', () => {
   it('shows failed job errors', async () => {
     mockCreateAnimation.mockResolvedValue({
       conversation_id: 'conv-1',
-      scene_path: '/tmp/scene.py',
+      source_code: 'code', content_hash: 'hash',
     })
     mockQueueRender.mockResolvedValue({
       job_id: 'job-1',
