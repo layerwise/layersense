@@ -30,9 +30,6 @@ services:
       - "8000:8000"
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
-    volumes:
-      - ./layersense_artifacts/code:/layersense_artifacts/code
 
   controller:
     container_name: layersense_controller
@@ -42,14 +39,13 @@ services:
     ports:
       - "8001:8001"
     environment:
-      LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
-      LAYERSENSE_ARTIFACTS_DIR: /layersense_artifacts
+      LAYERSENSE_STORAGE_ROOT: /layersense_artifacts/storage
+      LAYERSENSE_RENDER_WORKDIR: /tmp/layersense-renders
       LAYERSENSE_DB_PATH: /layersense_artifacts/db/layersense.sqlite
       LAYERSENSE_REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis
     volumes:
-      - ./layersense_artifacts/code:/layersense_artifacts/code
       - ./layersense_artifacts:/layersense_artifacts
 
   controller-worker:
@@ -59,14 +55,13 @@ services:
       dockerfile: layersense_controller/Dockerfile
     command: ["taskiq", "worker", "layersense_controller.worker:broker"]
     environment:
-      LAYERSENSE_SCENES_DIR: /layersense_artifacts/code
-      LAYERSENSE_ARTIFACTS_DIR: /layersense_artifacts
+      LAYERSENSE_STORAGE_ROOT: /layersense_artifacts/storage
+      LAYERSENSE_RENDER_WORKDIR: /tmp/layersense-renders
       LAYERSENSE_DB_PATH: /layersense_artifacts/db/layersense.sqlite
       LAYERSENSE_REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis
     volumes:
-      - ./layersense_artifacts/code:/layersense_artifacts/code
       - ./layersense_artifacts:/layersense_artifacts
 
 volumes:

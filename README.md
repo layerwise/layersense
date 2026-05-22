@@ -10,8 +10,8 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 ## Current Status
 
 - `layersense_frontend/` contains a stock-Excalidraw React app with prompt input, generate flow, and preview/final render UI.
-- `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload, normalizes it into a typed internal scene model, and writes generated Manim scene files with source-level background configuration when needed.
-- `layersense_controller/` queues render jobs, stores ephemeral job state in Redis, applies explicit per-request CLI flags, runs Manim renders through a Taskiq worker, and serves cached artifacts over stable HTTP routes.
+- `layersense_agent/` accepts animation requests with a structured Excalidraw `scene` payload, normalizes it into a typed internal scene model, and returns generated Manim source plus a source hash.
+- `layersense_controller/` queues render jobs, stores ephemeral job state in Redis, persists render rows in SQLite, applies explicit per-request CLI flags, runs Manim renders through a Taskiq worker, and serves object-store artifacts over stable HTTP routes.
 - `layersense_persistence/` owns the durable SQLite Project/Scene/Frame/Render schema, Alembic migrations, DTOs, and repository classes for the architecture migration.
 - The full end-to-end workflow is partially implemented, and the repo now includes dedicated Python `e2e` tests for the live local stack, but real render reliability issues still remain before it should be treated as production-ready.
 
@@ -20,44 +20,40 @@ LayerSense aims to bridge the visual creativity of Excalidraw with the precise, 
 The project currently targets a simple local-developer architecture:
 
 1. Browser frontend captures a structured Excalidraw `scene` snapshot and prompt.
-2. `layersense_agent` normalizes the Excalidraw payload into a typed internal scene model and generates Manim code, embedding background configuration into the scene source when needed.
-3. Frontend explicitly queues a render with `layersense_controller`, including optional structured `cli_flags`, and receives a `job_id` plus initial job snapshot.
-4. Controller short-circuits cached hits or enqueues one Taskiq job for preview then final rendering.
+2. `layersense_agent` normalizes the Excalidraw payload into a typed internal scene model and returns Manim source, embedding background configuration into the scene source when needed.
+3. Frontend explicitly queues a render with `layersense_controller`, forwarding `source_code`, `content_hash`, and optional structured `cli_flags`, and receives a `job_id` plus initial job snapshot.
+4. Controller writes source to the object store, short-circuits completed render rows whose blobs exist, or enqueues one Taskiq job for preview then final rendering.
 5. Frontend long-polls `GET /render-jobs/{job_id}` until preview/final artifacts are available.
 
 The controller watcher code remains in the repo for future manual-edit rerender workflows, but it is not part of the default proof-of-concept browser loop.
 
-Raw Manim scene renders now live under `./layersense_artifacts/scenes/<project-or-_root>/<preview|final>/...`.
+Render source and mp4 blobs now live under `./layersense_artifacts/storage/renders/<content_hash>/...`.
 The preview/final Manim config defaults are packaged inside `layersense_controller` itself under `src/layersense_controller/resources/`, so local and Docker runs use the same installed config resources instead of repo-root config files.
-The controller now keeps a JSON cache index at `./layersense_artifacts/cache/index.json` and serves browser-facing artifacts through stable routes instead of duplicating top-level hash-named mp4 files. Cache-index writes coordinate through Redis, and artifact cache identity includes both scene file content and normalized controller CLI flags.
+The render table in SQLite replaces the old JSON cache index. Artifact cache identity includes generated scene source plus normalized controller CLI flags.
 
 ## Render Layout
 
-The controller shells out to Manim with:
+The controller shells out to Manim from a per-render temp workdir with:
 
 - packaged config defaults from `layersense_controller.resources`
 - `--config_file <materialized packaged config path>`
-- `--media_dir <artifacts_dir>/scenes`
-- nested `--output_file` paths based on scene location
+- `--media_dir <render_workdir>/<render_id>/media`
+- `--output_file preview|final`
 
-Example raw artifact tree:
+Example object-store tree:
 
 ```text
 layersense_artifacts/
-  cache/
-    index.json
-  scenes/
-    generated_scenes/
-      preview/
-        generated_123_preview.mp4
-      final/
-        generated_123_final.mp4
-    _root/
-      preview/
-        standalone_preview.mp4
+  storage/
+    renders/
+      <content_hash>/
+        source.py
+        preview.mp4
+        final.mp4
+        manim.log
 ```
 
-The `scenes/` subtree is the canonical media layout. The cache index maps content hashes and semantic scene UUIDs to those canonical files.
+The object store is the canonical artifact layout. SQLite render rows map content hashes and scene ids to those canonical keys.
 
 Current browser-facing artifact routes:
 
@@ -194,11 +190,8 @@ Notes:
 - `just test_python_integration_coverage` is the canonical integration coverage gate for Python changes; keep every changed runtime module at or above 95% integration coverage before handoff.
 - Export `OPENAI_API_KEY` in your shell before running `just docker`.
 - The current compose stack requires Redis because render job state and Taskiq transport both depend on it.
-- Cache-index writes also use Redis for short-lived cross-process coordination.
-- Shared host-mounted directories are used for scene and artifact exchange:
-  - `./layersense_artifacts/code`
-  - `./layersense_artifacts`
-- Controller render requests must point at scene files inside the configured `layersense_scenes` directory.
+- Render artifacts are shared between controller API and worker through `./layersense_artifacts/storage`.
+- Controller render requests carry `source_code` and `content_hash`; the agent no longer writes shared scene files.
 
 ## Controller Outlook
 
