@@ -17,7 +17,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="LayerSense Controller", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://frontend"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

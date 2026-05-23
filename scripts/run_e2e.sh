@@ -52,6 +52,5 @@ npm --prefix layersense_frontend test
 log_pwd "after frontend tests"
 uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e
 log_pwd "after http e2e"
-uv run --all-packages playwright install chromium
 uv run --all-packages pytest tests/e2e/test_browser_flow_e2e.py -m e2e
 log_pwd "after browser e2e"

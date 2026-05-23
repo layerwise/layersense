@@ -6,8 +6,8 @@ import type {
   RenderQueueResponse,
 } from './types'
 
-export const AGENT_BASE = 'http://localhost:8000'
-export const CONTROLLER_BASE = 'http://localhost:8001'
+export const AGENT_BASE = import.meta.env.VITE_AGENT_BASE ?? 'http://localhost:8000'
+export const CONTROLLER_BASE = import.meta.env.VITE_CONTROLLER_BASE ?? 'http://localhost:8001'
 
 const parseErrorBody = async (response: Response): Promise<string> => {
   const contentType = response.headers.get('content-type') ?? ''

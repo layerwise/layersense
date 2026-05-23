@@ -3,6 +3,9 @@ services:
     container_name: layersense_frontend_e2e
     build:
       target: prod
+      args:
+        VITE_AGENT_BASE: http://agent:8000
+        VITE_CONTROLLER_BASE: http://controller:8001
     ports: !reset
       - "3901:80"
     volumes: !reset []
