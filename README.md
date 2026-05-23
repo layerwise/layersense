@@ -92,6 +92,12 @@ Run the dedicated `e2e` suite against an already-running local stack with:
 just e2e
 ```
 
+Run the browser-driven e2e smoke against an already-running local stack with:
+
+```bash
+just e2e_browser
+```
+
 Run the assistant-friendly reproducible end-to-end path with:
 
 ```bash
@@ -131,6 +137,7 @@ Notes:
 
 - `just e2e` is separate from `just test`.
 - It probes the real local service chain at `localhost:3000`, `localhost:8000`, and `localhost:8001`.
+- `just e2e_browser` drives the same stack through a real Chromium browser via Python Playwright.
 - It is intended to surface real runtime regressions, so a failing `e2e` run can still indicate useful progress if it points at a concrete controller or agent bug.
 
 ## Testing Taxonomy
@@ -176,6 +183,7 @@ Useful commands:
 - `just test_python_integration_refresh`: Python `integration` tests in record mode
 - `just test_python_e2e`: Python `e2e` marker selection
 - `just e2e`: black-box live-stack `e2e` tests against an already-running local stack
+- `just e2e_browser`: browser-driven live-stack smoke against an already-running local stack
 - `just test-e2e`: assistant-friendly ephemeral compose run of the full suite, including `e2e`
 
 The detailed taxonomy rationale and rollout notes live in:

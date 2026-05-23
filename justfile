@@ -146,6 +146,9 @@ test:
 e2e:
     uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e
 
+e2e_browser:
+    uv run --all-packages pytest tests/e2e/test_browser_flow_e2e.py -m e2e
+
 test-e2e:
     #!/usr/bin/env bash
     set -euo pipefail

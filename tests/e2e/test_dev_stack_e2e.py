@@ -107,6 +107,17 @@ def _assert_ok(response: requests.Response, boundary: str) -> None:
     ), f"{boundary} failed with status {response.status_code}: {response.text[:500]}"
 
 
+def _assert_video_artifact_response(response: requests.Response, boundary: str) -> None:
+    assert response.status_code == 200, (
+        f"{boundary} failed with status {response.status_code}: " f"{response.text[:500]}"
+    )
+    content_type = response.headers.get("content-type", "")
+    assert (
+        "video/mp4" in content_type
+    ), f"{boundary} returned unexpected content type: {content_type}"
+    assert response.content, f"{boundary} returned an empty artifact body"
+
+
 def _create_animation(prompt: str) -> dict[str, Any]:
     response = _request_with_boundary_failure(
         "POST",
@@ -130,7 +141,7 @@ def _queue_render(
     conversation_id: str,
     cli_flags: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    payload = {
+    payload: dict[str, Any] = {
         "source_code": source_code,
         "content_hash": content_hash,
         "conversation_id": conversation_id,
@@ -176,6 +187,13 @@ def _wait_for_render_job(job_id: str) -> dict[str, Any]:
             return last_job
 
     pytest.fail(f"render job {job_id} did not reach a terminal state; last_job={last_job}")
+
+
+def _completed_or_wait_for_render_job(render_response: dict[str, Any]) -> dict[str, Any]:
+    job = render_response["job"]
+    if job["status"] == "succeeded":
+        return job
+    return _wait_for_render_job(render_response["job_id"])
 
 
 def _content_hash_for_source(source_code: str, cli_flags: dict[str, Any] | None = None) -> str:
@@ -249,6 +267,14 @@ def _wait_for_artifacts(
             and preview_response.ok
             and final_response.ok
         ):
+            _assert_video_artifact_response(scene_response, "controller scene artifact request")
+            _assert_video_artifact_response(
+                scene_preview_response, "controller scene preview artifact request"
+            )
+            _assert_video_artifact_response(
+                preview_response, "controller preview artifact request"
+            )
+            _assert_video_artifact_response(final_response, "controller final artifact request")
             return scene_url, scene_preview_url, resolved_preview_url, resolved_final_url
 
         time.sleep(1)
@@ -357,3 +383,62 @@ def test_api_chain_generate_to_render_completes() -> None:
     assert scene_preview_url.endswith("?preview=true")
     assert preview_url.endswith("/preview")
     assert final_url.endswith("/final")
+
+
+def test_controller_reuses_completed_render_for_identical_source_and_flags() -> None:
+    """Reuse a completed render for identical source, source hash, and CLI flags."""
+    cli_flags = {"quality": "m"}
+    source_code = f"# cache reuse probe: {uuid.uuid4().hex}\n{KNOWN_GOOD_SCENE}"
+    content_hash = hashlib.sha256(source_code.encode()).hexdigest()
+    first_conversation_id = f"cache-reuse-first-{uuid.uuid4().hex}"
+    second_conversation_id = f"cache-reuse-second-{uuid.uuid4().hex}"
+
+    first_render_response = _queue_render(
+        source_code,
+        content_hash,
+        first_conversation_id,
+        cli_flags,
+    )
+    first_job = _wait_for_render_job(first_render_response["job_id"])
+    if first_job["status"] == "failed":
+        pytest.fail(f"first render job failed: {first_job}")
+
+    _ = _wait_for_artifacts(
+        source_code,
+        first_conversation_id,
+        preview_url=urljoin(_controller_base(), first_job["preview_url"]),
+        final_url=urljoin(_controller_base(), first_job["final_url"]),
+        cli_flags=cli_flags,
+    )
+
+    second_render_response = _queue_render(
+        source_code,
+        content_hash,
+        second_conversation_id,
+        cli_flags,
+    )
+    second_job = _completed_or_wait_for_render_job(second_render_response)
+    if second_job["status"] == "failed":
+        pytest.fail(f"second render job failed: {second_job}")
+
+    assert second_job["status"] == "succeeded"
+    assert first_job["preview_url"] == second_job["preview_url"]
+    assert first_job["final_url"] == second_job["final_url"]
+    assert second_job["preview_url"].startswith("/artifacts/by-hash/")
+    assert second_job["final_url"].startswith("/artifacts/by-hash/")
+
+    second_scene_url, second_scene_preview_url, second_preview_url, second_final_url = (
+        _wait_for_artifacts(
+            source_code,
+            second_conversation_id,
+            preview_url=urljoin(_controller_base(), second_job["preview_url"]),
+            final_url=urljoin(_controller_base(), second_job["final_url"]),
+            cli_flags=cli_flags,
+        )
+    )
+    assert second_scene_url.endswith(f"/artifacts/scenes/{second_conversation_id}")
+    assert second_scene_preview_url.endswith(
+        f"/artifacts/scenes/{second_conversation_id}?preview=true"
+    )
+    assert second_preview_url.endswith("/preview")
+    assert second_final_url.endswith("/final")
