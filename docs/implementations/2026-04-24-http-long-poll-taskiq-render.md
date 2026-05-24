@@ -1088,7 +1088,7 @@ describe('useRenderJob', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm --prefix layersense_frontend test -- src/api.test.ts src/hooks/useRenderJob.test.ts`
+Run: `bun run --cwd layersense_frontend test -- src/api.test.ts src/hooks/useRenderJob.test.ts`
 Expected: FAIL because the new API types and hook do not exist.
 
 - [ ] **Step 3: Write the minimal frontend API and hook**
@@ -1193,7 +1193,7 @@ export const useRenderJob = ({ jobId, initialJob }: UseRenderJobParams): RenderJ
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm --prefix layersense_frontend test -- src/api.test.ts src/hooks/useRenderJob.test.ts`
+Run: `bun run --cwd layersense_frontend test -- src/api.test.ts src/hooks/useRenderJob.test.ts`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -1304,7 +1304,7 @@ it('shows failed job errors', async () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `npm --prefix layersense_frontend test -- src/App.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- src/App.test.tsx`
 Expected: FAIL because `App.tsx` still depends on websocket callbacks.
 
 - [ ] **Step 3: Write the minimal App migration**
@@ -1367,7 +1367,7 @@ function App() {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `npm --prefix layersense_frontend test -- src/App.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- src/App.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**

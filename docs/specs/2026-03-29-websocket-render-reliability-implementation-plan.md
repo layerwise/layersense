@@ -23,7 +23,7 @@
 
 **Step 2: Run test to verify it fails**
 
-Run: `npm --prefix layersense_frontend test -- --run useRenderEvents.test.ts App.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- --run useRenderEvents.test.ts App.test.tsx`
 
 Expected:
 - websocket persistence test fails because the hook currently creates a new `WebSocket` on conversation changes
@@ -36,7 +36,7 @@ Expected:
 
 **Step 4: Run test to verify it passes**
 
-Run: `npm --prefix layersense_frontend test -- --run useRenderEvents.test.ts App.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- --run useRenderEvents.test.ts App.test.tsx`
 
 Expected: PASS
 
@@ -79,7 +79,7 @@ Expected: PASS
 
 **Step 2: Run focused tests**
 
-Run: `npm --prefix layersense_frontend test -- --run useRenderEvents.test.ts App.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- --run useRenderEvents.test.ts App.test.tsx`
 
 Run: `uv run --all-packages pytest layersense_controller/tests/test_router.py layersense_controller/tests/test_websocket_manager.py layersense_controller/tests/test_render.py`
 

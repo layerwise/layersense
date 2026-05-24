@@ -2,7 +2,7 @@
 
 ## Goal
 
-Refactor the frontend container setup into a proper multi-stage Docker build that cleanly supports both local development and production-style serving, without runtime `npm install` behavior and without mixing build-time and runtime concerns.
+Refactor the frontend container setup into a proper multi-stage Docker build that cleanly supports both local development and production-style serving, without runtime `bun install` behavior and without mixing build-time and runtime concerns.
 
 ## Decision
 
@@ -26,7 +26,7 @@ Compose will choose the appropriate target for each workflow instead of relying 
 
 This separates responsibilities cleanly and removes the current anti-patterns:
 
-- `npm install` during image build and again at runtime
+- `bun install` during image build and again at runtime
 - one image trying to be both dev server and production runtime
 - bind mounts masking the intended dependency layout without a clear model
 
@@ -49,20 +49,20 @@ This separates responsibilities cleanly and removes the current anti-patterns:
 Proposed Dockerfile stages:
 
 1. `deps`
-   - base image: pinned Node image
-   - copy `package.json` and `package-lock.json`
-   - run `npm ci`
+   - base image: oven/bun
+   - copy `package.json` and `bun.lock`
+   - run `bun install --frozen-lockfile`
 
 2. `dev`
    - inherit from `deps`
    - copy the frontend source tree
    - expose port `3000`
-   - run `npm run dev -- --host 0.0.0.0 --port 3000`
+   - run `bun run dev --host 0.0.0.0 --port 3000`
 
 3. `build`
    - inherit from `deps`
    - copy the frontend source tree
-   - run `npm run build`
+   - run `bun run build`
 
 4. `prod`
    - use a small runtime image such as `nginx:alpine`
@@ -71,7 +71,7 @@ Proposed Dockerfile stages:
 
 ## Dependency Strategy
 
-Use `npm ci`, not `npm install`, in the Docker build.
+Use `bun install --frozen-lockfile`, not `bun install`, in the Docker build.
 
 Reasons:
 
@@ -89,13 +89,13 @@ Recommended compose behavior for the frontend service:
 
 - build with `target: dev`
 - bind mount the source tree into `/app`
-- use a named volume for `/app/node_modules`
+- use a named volume for `/app/node_modules` (Bun-managed)
 - start Vite directly with no runtime install step
 
 Important nuance:
 
 - a bind mount over `/app` hides files that were copied into the image
-- the named `node_modules` volume should therefore remain mounted at `/app/node_modules`
+- the named `node_modules` volume should therefore remain mounted at `/app/node_modules` even when using Bun.
 - the service should rely on the dependency installation that occurred during image build, not on reinstalling packages when the container starts
 
 If the current compose pattern does not correctly preserve that dependency state, it should be adjusted as part of implementation.
@@ -129,7 +129,7 @@ This cleanup is intentionally broader than the current e2e failure, but it shoul
 
 Most importantly, it should remove:
 
-- runtime `npm install`
+- runtime `bun install`
 - dependency state that varies based on container boot timing
 
 It may not fully solve the e2e frontend issue by itself if the e2e overlay still needs different mount behavior, but it gives the repo a cleaner and more predictable frontend container baseline.
@@ -157,7 +157,7 @@ Implementation should verify:
 - the frontend dev image builds successfully
 - the dev stack still serves the app on `localhost:3000`
 - the production target builds successfully
-- no runtime `npm install` remains in the frontend container path
+- no runtime `bun install` remains in the frontend container path
 
 ## Risks
 

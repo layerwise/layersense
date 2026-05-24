@@ -6,7 +6,7 @@
 
 **Architecture:** Replace the current single-stage frontend Dockerfile with a multi-stage Dockerfile built around a shared dependency-install stage, plus dedicated `dev`, `build`, and `prod` stages. Update compose to select the `dev` target for local development and document the new container model.
 
-**Tech Stack:** Docker, Docker Compose, Node.js, npm, Vite, nginx, Vitest
+**Tech Stack:** Docker, Docker Compose, Bun, Vite, nginx, Vitest
 
 ---
 
@@ -21,10 +21,10 @@
 Add focused assertions that describe the intended frontend Docker model:
 
 - `layersense_frontend/Dockerfile` contains multiple stages
-- it uses `npm ci`, not runtime `npm install`
+- it uses `bun install`, not runtime `bun install`
 - it defines `dev`, `build`, and `prod` stages
 - the final production stage is based on `nginx:alpine`
-- the Dockerfile no longer has `CMD ["sh", "-c", "npm install ..."]`
+- the Dockerfile no longer has `CMD ["sh", "-c", "bun install ..."]`
 
 Also assert that `docker-compose.yml` builds the frontend service with the `dev` target.
 
@@ -53,8 +53,8 @@ Do not commit unless asked.
 Implement the stage layout:
 
 - `deps` stage
-  - copy `package.json` and `package-lock.json`
-  - run `npm ci`
+- copy `package.json` and `bun.lock`
+- run `bun install --frozen-lockfile`
 - `dev` stage
   - inherit from `deps`
   - copy source tree
@@ -62,7 +62,7 @@ Implement the stage layout:
 - `build` stage
   - inherit from `deps`
   - copy source tree
-  - run `npm run build`
+  - run `bun run build`
 - `prod` stage
   - use `nginx:alpine`
   - copy built assets from the `build` stage
@@ -77,7 +77,7 @@ Expected: the new Dockerfile-related assertions pass, while compose-target asser
 
 **Step 3: Inspect the Dockerfile for runtime install regressions**
 
-Ensure there is no `npm install` in `CMD` or `ENTRYPOINT`.
+Ensure there is no `bun install` in `CMD` or `ENTRYPOINT`.
 
 **Step 4: Commit**
 
@@ -93,7 +93,7 @@ Do not commit unless asked.
 
 Change the frontend service so it builds with `target: dev`.
 
-Keep the current bind mount and `node_modules` volume shape unless a small correction is required for the new model.
+Keep the current bind mount and `node_modules` volume shape (Bun-compatible) unless a small correction is required for the new model.
 
 The service should still support local Vite development on port `3000`.
 
@@ -170,7 +170,7 @@ Expected: exit `0`.
 
 **Step 3: Run frontend tests**
 
-Run: `npm --prefix layersense_frontend test`
+Run: `bun run --cwd layersense_frontend test`
 
 Expected: exit `0`.
 

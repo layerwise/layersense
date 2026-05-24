@@ -401,7 +401,7 @@ describe('ExcalidrawSceneSnapshot typing', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `npm --prefix layersense_frontend test -- --run Canvas.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- --run Canvas.test.tsx`
 Expected: FAIL or typecheck issue once the snapshot type is narrowed from `unknown[]`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -422,7 +422,7 @@ export type ExcalidrawSceneSnapshot = {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `npm --prefix layersense_frontend test -- --run Canvas.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- --run Canvas.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -449,7 +449,7 @@ git commit -m "chore(frontend): tighten excalidraw scene typings"
 Run: `uv run --all-packages pytest layersense_agent/tests/unit/test_scene_models.py layersense_agent/tests/unit/test_scene_normalizer.py layersense_agent/tests/unit/test_animate_scene.py -q`
 Expected: PASS
 
-Run: `npm --prefix layersense_frontend test -- --run Canvas.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- --run Canvas.test.tsx`
 Expected: PASS
 
 - [ ] **Step 3: Run repo verification**

@@ -56,7 +56,7 @@ The outer runner image contains:
 - Docker CLI with Compose support
 - `uv`
 - Python test dependencies
-- Node and npm for frontend tests, or access to them through a prebuilt runner image
+- Bun and Bunx for frontend tests, or access to them through a prebuilt runner image
 - a small orchestration entrypoint script
 
 The outer runner mounts:
@@ -200,7 +200,7 @@ Verification should prove both old and new workflows remain valid:
 
 - Real provider-backed e2e runs will remain partially nondeterministic due to upstream API behavior.
 - Sharing the host Docker socket means the approach is not true isolation and still depends on a healthy local Docker daemon.
-- Runner image composition may grow if Python and Node tooling are both installed directly into the same image.
+- Runner image composition may grow if Python and Bun tooling are both installed directly into the same image.
 
 ## Success Criteria
 

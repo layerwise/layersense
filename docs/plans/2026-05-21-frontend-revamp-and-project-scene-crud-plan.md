@@ -1,8 +1,8 @@
 # Frontend Revamp + Project/Scene CRUD + Controller Orchestration — Implementation Plan
 
-**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (overview is canonical for schema, key layout, and Option C boundaries). Amended 2026-05-21 to: (a) make `_default` shim wipe an explicit first-commit migration; (b) declare a hard-cutover schema break for `RenderJobSnapshot` (no back-compat); (c) specify the frame-diff algorithm as hard-delete-on-disappear with explicit collision rule; (d) reconcile real frontend prop shapes (`Canvas` gains an `onChange` callback; `VideoPlayer` keeps URL-shaped props; status vocabulary unifies to the backend `Render.status` enum across the wire); (e) clarify that `isSaving`-gated Generate eliminates the autosave race by construction, not by snapshotting.
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (overview is canonical for schema, key layout, and Option C boundaries). Amended 2026-05-21 to: (a) make `_default` shim wipe an explicit first-commit migration; (b) declare a hard-cutover schema break for `RenderJobSnapshot` (no back-compat); (c) specify the frame-diff algorithm as hard-delete-on-disappear with explicit collision rule; (d) reconcile real frontend prop shapes (`Canvas` gains an `onChange` callback; `VideoPlayer` keeps URL-shaped props; status vocabulary unifies to the backend `Render.status` enum across the wire); (e) clarify that `isSaving`-gated Generate eliminates the autosave race by construction, not by snapshotting. **Prerequisite note (2026-05-23):** before executing the frontend revamp slices in this plan, complete `docs/plans/2026-05-23-frontend-bun-tailwind-migration-plan.md` so the revamp lands on the Bun/Tailwind baseline instead of extending the Bun + app-CSS stack.
 **Step in build order:** 4 of 9
-**Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`ObjectStore` + `cache.py` deletion + `_default` shim) merged
+**Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`ObjectStore` + `cache.py` deletion + `_default` shim) merged, `docs/plans/2026-05-23-frontend-bun-tailwind-migration-plan.md` executed first for frontend tooling/styling baseline
 **Unblocks:** Step 5 (agent refinement), Step 6 (project export)
 
 ---
@@ -565,7 +565,7 @@ For `test_agent_client.py` (unit):
 2. `grep -rn "localhost:8000\|http://agent" layersense_frontend/src/` returns no matches. Browser does not talk to the agent.
 3. `react-router-dom` is the only new runtime dependency in `layersense_frontend/package.json`.
 4. `uv run --all-packages pytest -m unit` and `-m integration` pass; coverage for new controller `api/*.py` ≥ 95%; `services/agent_client.py` ≥ 95%.
-5. `npm test` (vitest) passes; new hooks/components ≥ 90% covered; updated `Canvas.test.tsx` covers the new `onChange` callback and `initialScene` hydration.
+5. `bun run --cwd layersense_frontend test` (vitest) passes; new hooks/components ≥ 90% covered; updated `Canvas.test.tsx` covers the new `onChange` callback and `initialScene` hydration.
 6. `just e2e` passes against the local Docker stack with the rewritten e2e test.
 7. `just test-e2e` passes.
 8. `just lint` passes (Python + ESLint + tsc).

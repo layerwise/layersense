@@ -126,7 +126,7 @@ If the frontend types no longer align with the agent contract expectations, make
 
 **Step 3: Run focused frontend tests**
 
-Run: `npm --prefix layersense_frontend test -- --run src/api.test.ts`
+Run: `bun run --cwd layersense_frontend test -- --run src/api.test.ts`
 
 Expected: PASS.
 
@@ -245,7 +245,7 @@ Expected: PASS.
 
 **Step 3: Run frontend API test**
 
-Run: `npm --prefix layersense_frontend test -- --run src/api.test.ts`
+Run: `bun run --cwd layersense_frontend test -- --run src/api.test.ts`
 
 Expected: PASS.
 

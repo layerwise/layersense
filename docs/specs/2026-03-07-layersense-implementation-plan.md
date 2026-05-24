@@ -1041,30 +1041,27 @@ git commit -m "feat(agent): add Dockerfile"
 
 ## Task 11: Frontend — scaffold React + Vite + TypeScript
 
-**Why:** Create the `layersense_frontend/` package with Excalidraw and the project dependencies.
-
-**Files:**
-- Create: `layersense_frontend/` (new directory tree)
+**Why:** Create the `layersense_frontend/` package with Excalidraw and the project dependencies, managed with `bun`.
 
 ---
 
 ### Step 11.1 — Scaffold with Vite
 
 ```bash
-cd layersense_frontend  # already created, or: mkdir layersense_frontend && cd layersense_frontend
-npm create vite@latest . -- --template react-ts
-npm install
-npm install @excalidraw/excalidraw
+cd layersense_frontend
+bun create vite@latest . --template react-ts
+bun install
+bun add @excalidraw/excalidraw
 ```
 
-Expected: `node_modules/` populated, `src/App.tsx` exists.
+Expected: `node_modules/` populated (via Bun), `src/App.tsx` exists.
 
 ---
 
 ### Step 11.2 — Verify the dev server starts
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 Expected: Vite dev server at `http://localhost:5173`. Ctrl+C to stop.
@@ -1332,7 +1329,7 @@ export function VideoPlayer({ conversationId, onStatus }: Props) {
 
 ```bash
 cd layersense_frontend
-npm run build
+bun run build
 ```
 
 Expected: build succeeds, no TypeScript errors.
@@ -1374,12 +1371,12 @@ server {
 ### Step 14.2 — Write Dockerfile
 
 ```dockerfile
-FROM node:22-alpine AS builder
+FROM oven/bun:1.1-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 COPY . .
-RUN npm run build
+RUN bun run build
 
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html

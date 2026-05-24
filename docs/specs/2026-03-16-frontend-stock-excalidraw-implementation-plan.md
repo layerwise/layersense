@@ -29,7 +29,7 @@ Add `layersense_frontend/src/api.test.ts` with tests for:
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd layersense_frontend && npm run test -- api.test.ts`
+Run: `cd layersense_frontend && bun run test -- api.test.ts`
 Expected: FAIL because test runner and `api.ts` do not exist yet.
 
 **Step 3: Write minimal implementation**
@@ -48,7 +48,7 @@ Create `layersense_frontend/src/api.ts`:
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd layersense_frontend && npm run test -- api.test.ts`
+Run: `cd layersense_frontend && bun run test -- api.test.ts`
 Expected: PASS.
 
 **Step 5: Commit**
@@ -78,7 +78,7 @@ Use module mocking for Excalidraw component if necessary.
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd layersense_frontend && npm run test -- Canvas.test.tsx`
+Run: `cd layersense_frontend && bun run test -- Canvas.test.tsx`
 Expected: FAIL because component does not exist.
 
 **Step 3: Write minimal implementation**
@@ -91,7 +91,7 @@ Create `Canvas.tsx`:
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd layersense_frontend && npm run test -- Canvas.test.tsx`
+Run: `cd layersense_frontend && bun run test -- Canvas.test.tsx`
 Expected: PASS.
 
 **Step 5: Commit**
@@ -120,7 +120,7 @@ Add tests for hook behavior:
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd layersense_frontend && npm run test -- useRenderEvents.test.ts`
+Run: `cd layersense_frontend && bun run test -- useRenderEvents.test.ts`
 Expected: FAIL because hook does not exist.
 
 **Step 3: Write minimal implementation**
@@ -134,7 +134,7 @@ Create hook with:
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd layersense_frontend && npm run test -- useRenderEvents.test.ts`
+Run: `cd layersense_frontend && bun run test -- useRenderEvents.test.ts`
 Expected: PASS.
 
 **Step 5: Commit**
@@ -162,7 +162,7 @@ Test component states:
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd layersense_frontend && npm run test -- VideoPlayer.test.tsx`
+Run: `cd layersense_frontend && bun run test -- VideoPlayer.test.tsx`
 Expected: FAIL because component does not exist.
 
 **Step 3: Write minimal implementation**
@@ -175,7 +175,7 @@ Create `VideoPlayer.tsx`:
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd layersense_frontend && npm run test -- VideoPlayer.test.tsx`
+Run: `cd layersense_frontend && bun run test -- VideoPlayer.test.tsx`
 Expected: PASS.
 
 **Step 5: Commit**
@@ -207,7 +207,7 @@ Add integration-style app tests:
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd layersense_frontend && npm run test -- App.test.tsx`
+Run: `cd layersense_frontend && bun run test -- App.test.tsx`
 Expected: FAIL with missing orchestration.
 
 **Step 3: Write minimal implementation**
@@ -228,7 +228,7 @@ Apply UX decisions:
 
 **Step 4: Run test to verify it passes**
 
-Run: `cd layersense_frontend && npm run test -- App.test.tsx`
+Run: `cd layersense_frontend && bun run test -- App.test.tsx`
 Expected: PASS.
 
 **Step 5: Commit**
@@ -249,7 +249,7 @@ git commit -m "feat(frontend): orchestrate generate and render event flow"
 
 **Step 1: Write failing smoke test command step**
 
-Run: `cd layersense_frontend && npm run test`
+Run: `cd layersense_frontend && bun run test`
 Expected: FAIL if test tooling is not configured.
 
 **Step 2: Configure minimal test stack**
@@ -264,15 +264,8 @@ Add `test` script and setup file.
 
 **Step 3: Re-run tests**
 
-Run: `cd layersense_frontend && npm run test`
+Run: `cd layersense_frontend && bun run test`
 Expected: PASS for implemented tests.
-
-**Step 4: Commit**
-
-```bash
-git add layersense_frontend/package.json layersense_frontend/package-lock.json layersense_frontend/vite.config.ts layersense_frontend/src/test/setup.ts
-git commit -m "test(frontend): configure vitest and testing-library"
-```
 
 ---
 
@@ -283,29 +276,15 @@ git commit -m "test(frontend): configure vitest and testing-library"
 
 **Step 1: Frontend build verification**
 
-Run: `cd layersense_frontend && npm run build`
+Run: `cd layersense_frontend && bun run build`
 Expected: PASS.
 
 **Step 2: Frontend local run verification**
 
-Run: `cd layersense_frontend && npm run dev -- --host 0.0.0.0`
+Run: `cd layersense_frontend && bun run dev -- --host 0.0.0.0`
 Expected: Vite serves app.
 
 Note: if validating browser requests against current backend CORS settings, prefer serving the frontend on port `3000` instead of Vite's default `5173`.
-
-**Step 3: Workspace checks**
-
-Run from repo root:
-- `just lint`
-- `just test`
-Expected: PASS.
-
-**Step 4: Commit (only if code changed for fixes)**
-
-```bash
-git add <files-fixed-during-verification>
-git commit -m "chore(frontend): fix verification issues"
-```
 
 ---
 
@@ -315,32 +294,14 @@ git commit -m "chore(frontend): fix verification issues"
 - Modify: `README.md` (frontend usage section)
 - Modify: `docs/plans/2026-03-16-frontend-stock-excalidraw-integration-plan.md` (mark decisions finalized)
 
-**Step 1: Update docs for settled decisions**
-
-Document final milestone decisions:
-- Generate = new conversation each click (initially)
-- Cancel render deferred
-- Preview waits for user click
-
-**Step 2: Verify docs are accurate**
-
-Run: `grep`/manual read checks for stale statements.
-
-**Step 3: Commit**
-
-```bash
-git add README.md docs/plans/2026-03-16-frontend-stock-excalidraw-integration-plan.md
-git commit -m "docs(frontend): finalize stock Excalidraw integration decisions"
-```
-
 ---
 
 ## Final Verification Checklist
 
 Run in order before declaring complete:
 
-1. `cd layersense_frontend && npm run test`
-2. `cd layersense_frontend && npm run build`
+1. `cd layersense_frontend && bun run test`
+2. `cd layersense_frontend && bun run build`
 3. `just lint`
 4. `just test`
 

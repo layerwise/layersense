@@ -6,7 +6,7 @@
 
 **Architecture:** A new outer `e2e-runner` container will mount the current workspace and host Docker socket, then use a dedicated inner compose file to launch frontend, agent, and controller in an isolated project namespace. The `e2e` suite will be made environment-driven so the same tests continue to work for `just e2e` against localhost and for `just test-e2e` against the runner-managed stack, including nested git worktrees.
 
-**Tech Stack:** Docker Compose, shell scripting, just, pytest, uv, Node/npm, existing LayerSense Docker services
+**Tech Stack:** Docker Compose, shell scripting, just, pytest, uv, Bun, existing LayerSense Docker services
 
 ---
 
@@ -146,7 +146,7 @@ Create `Dockerfile.e2e` with the minimal toolchain needed:
 
 - Docker CLI with Compose support
 - Python 3.14 with `uv`
-- Node/npm
+- Bun
 - any small shell utilities needed for readiness polling and cleanup
 
 Prefer a single runner image over multiple helper containers.
@@ -247,8 +247,8 @@ Implement a small shell script that:
   - `LAYERSENSE_SMOKE_REPO_ROOT`
 - runs:
   - `uv run --all-packages pytest -m "not smoke"`
-  - `npm --prefix layersense_frontend test`
-  - `uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e`
+- `bun run --cwd layersense_frontend test`
+- `uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e`
 - captures compose status/logs on failure
 - always tears the stack down
 

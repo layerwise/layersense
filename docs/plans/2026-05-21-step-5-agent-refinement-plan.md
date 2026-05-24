@@ -435,7 +435,7 @@ Nothing deleted in this step.
 5. `grep -rn "localhost:8000\|http://agent" layersense_frontend/src/` returns no matches (browser still only talks to controller — unchanged from Step 4).
 6. `uv run --all-packages pytest -m unit` passes.
 7. `uv run --all-packages pytest -m integration` passes; coverage for `layersense_controller/src/layersense_controller/api/refine.py` ≥ 95%; `render_tasks_refine.py` ≥ 90%.
-8. `npm test` (vitest) passes; new/modified frontend components ≥ 90% covered.
+8. `bun run --cwd layersense_frontend test` (vitest) passes; new/modified frontend components ≥ 90% covered.
 9. `just e2e` passes against the local Docker stack with the extended e2e test.
 10. `just test-e2e` passes.
 11. `just lint` passes (Python + ESLint).

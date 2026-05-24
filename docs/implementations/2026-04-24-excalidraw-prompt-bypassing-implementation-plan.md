@@ -185,7 +185,7 @@ await queueRender({
 Run: `uv run --all-packages pytest layersense_agent/tests/unit/test_animate_scene.py -q`
 Expected: PASS
 
-Run: `npm --prefix layersense_frontend test -- --run App.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- --run App.test.tsx`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
@@ -356,7 +356,7 @@ git commit -m "fix(cache): include render options in artifact identity"
 Run: `uv run --all-packages pytest layersense_agent/tests/unit/test_render_options.py layersense_agent/tests/unit/test_animate_scene.py layersense_controller/tests/test_router.py layersense_controller/tests/test_render.py -q`
 Expected: PASS
 
-Run: `npm --prefix layersense_frontend test -- --run App.test.tsx`
+Run: `bun run --cwd layersense_frontend test -- --run App.test.tsx`
 Expected: PASS
 
 - [ ] **Step 3: Run repo verification**
