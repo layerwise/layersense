@@ -1,6 +1,6 @@
 # Frontend Revamp + Project/Scene CRUD + Controller Orchestration — Implementation Plan
 
-**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (overview is canonical for schema, key layout, and Option C boundaries). Amended 2026-05-21 to: (a) make `_default` shim wipe an explicit first-commit migration; (b) declare a hard-cutover schema break for `RenderJobSnapshot` (no back-compat); (c) specify the frame-diff algorithm as hard-delete-on-disappear with explicit collision rule; (d) reconcile target frontend prop shapes (`Canvas` gains an `onChange` callback; `VideoPlayer` keeps URL-shaped props and a local `idle` pre-render state while the wire format unifies to the backend `Render.status` enum); (e) clarify that `isSaving`-gated Generate eliminates the autosave race by construction, not by snapshotting. **Post-migration note (2026-05-24):** `docs/plans/2026-05-23-frontend-bun-tailwind-migration-plan.md` is already implemented. Step 4 now assumes the Bun/Tailwind baseline is present and should not reintroduce npm-era tooling work or a second styling migration.
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (overview is canonical for schema, key layout, and Option C boundaries). Amended 2026-05-21 to: (a) simplify `_default` cleanup to match reset-friendly first-version ergonomics; (b) declare a hard-cutover schema break for `RenderJobSnapshot` (no back-compat); (c) specify the frame-diff algorithm as hard-delete-on-disappear with explicit collision rule; (d) reconcile target frontend prop shapes (`Canvas` gains an `onChange` callback; `VideoPlayer` keeps URL-shaped props and a local `idle` pre-render state while the wire format unifies to the backend `Render.status` enum); (e) clarify that `isSaving`-gated Generate eliminates the autosave race by construction, not by snapshotting. **Post-migration note (2026-05-24):** `docs/plans/2026-05-23-frontend-bun-tailwind-migration-plan.md` is already implemented. Step 4 now assumes the Bun/Tailwind baseline is present and should not reintroduce npm-era tooling work or a second styling migration.
 **Step in build order:** 4 of 9
 **Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`ObjectStore` + `cache.py` deletion + `_default` shim) merged
 **Unblocks:** Step 5 (agent refinement), Step 6 (project export)
@@ -15,7 +15,7 @@ This is the first user-visible payoff and the architectural keystone. After this
 - Projects and scenes are persistent. Closing the browser tab no longer loses work.
 - **The Controller is the orchestrator.** It is the only service the browser talks to. It owns the database, the object store, and the agent dispatch.
 - **The Agent is a stateless pure function.** It accepts an inline payload (Excalidraw JSON + prompt + frames), returns Manim source code. Nothing else. It has no awareness of Projects, Scenes, the database, or the object store.
-- The `_default` Project shim from Step 3 is **deleted** by a focused first-commit migration `0003_drop_default_project_shim.py` (see `_default shim wipe` below). Real `POST /projects` and `POST /projects/{id}/scenes` endpoints replace it.
+- The `_default` Project shim from Step 3 is **deleted** as part of the Step 4 reset-friendly cleanup. Real `POST /projects` and `POST /projects/{id}/scenes` endpoints replace it.
 - Frames are minimally wired: schema and CRUD exist, the agent receives the structured frame array, the UI displays a frame list with `prompt_augmentation` per frame. Drag-to-reorder UX is deferred.
 
 This step does **not** change the agent's generation logic, the object store, or the rendering engine internals. It introduces project/scene CRUD on the controller, moves the agent call server-side, and rebuilds the frontend on top of the new API.
@@ -51,47 +51,17 @@ The browser→agent direct call from Step 3 is **retired** in this step. The bro
 
 ---
 
-## `_default` shim wipe (first commit)
+## `_default` shim cleanup (first commit)
 
-Step 4's first commit is migration `migrations/versions/0003_drop_default_project_shim.py`, landing in `layersense_persistence`:
+Step 4's first commit removes the `_default` Project shim from Step 3 in the simplest possible way:
 
-```python
-# layersense_persistence/.../migrations/versions/0003_drop_default_project_shim.py
+- Delete the `_default` project row and let `ON DELETE CASCADE` remove its scenes, frames, and renders.
+- Delete any associated artifact blobs best-effort via `ObjectStore.delete(key)`.
+- Remove any controller code path that could recreate the shim.
 
-def upgrade() -> None:
-    # 1. Collect render rows under _default for blob cleanup.
-    conn = op.get_bind()
-    keys_to_delete = conn.execute(text("""
-        SELECT r.scene_py_artifact_key, r.preview_artifact_key, r.final_artifact_key, r.log_artifact_key,
-               s.thumbnail_artifact_key
-        FROM render r
-        JOIN scene s ON s.id = r.scene_id
-        JOIN project p ON p.id = s.project_id
-        WHERE p.slug = '_default'
-    """)).all()
+No dedicated migration choreography is needed here. There is no meaningful persisted user data to preserve; the shim only ever contained smoke-test or transition-window content. If local state gets awkward, wipe the database/artifacts and recreate them from `0001_initial.py`.
 
-    # 2. Delete the project row; ON DELETE CASCADE removes scene, frame, render rows.
-    op.execute(text("DELETE FROM project WHERE slug = '_default'"))
-
-    # 3. Blob wipe is performed by a one-shot offline helper invoked by the migration runner
-    #    (NOT inside the Alembic migration body itself — migrations stay DB-only).
-    #    See `scripts/wipe_default_shim_blobs.py`, invoked by `just db_migrate` after the migration applies.
-
-def downgrade() -> None:
-    raise NotImplementedError("_default shim wipe is one-way; restoring requires restoring blobs from backup")
-```
-
-**Companion offline script `scripts/wipe_default_shim_blobs.py`:**
-
-- Reads the list of artifact keys captured by the migration into a one-shot temporary table OR via a pre-migration `SELECT` exported to JSON in `layersense_artifacts/.migration_state/0003_default_keys.json`.
-- For each key, calls `ObjectStore.delete(key)`. Missing keys are skipped silently (idempotent).
-- Logs a one-line summary: `wiped N renders / M blobs from _default shim`.
-
-**Why split the DB delete from the blob delete:** Alembic migrations must be DB-only — running them inside a Docker `entrypoint` flow with object-store side effects is an anti-pattern (the migration cannot be replayed safely on a different storage root, e.g., when someone resets storage but not DB). The two-step shape — migration deletes rows; companion script deletes blobs — is recoverable and ordering-safe.
-
-**No data preservation.** The shim only ever held throwaway content from the Step 3 transition window. Anything you care about is re-generated via Step 4's real CRUD-driven flow.
-
-**Anti-resurrection guard:** acceptance criterion 1 below (`grep "_default"` returns zero) plus a SQL assertion in the e2e bootstrap: `SELECT COUNT(*) FROM project WHERE slug='_default'` must return 0 after `just db_reset && just docker`. Any creation path in the controller that would resurrect the shim is removed in the same first commit (the shim's call site from PR 3b is deleted).
+**Anti-resurrection guard:** acceptance criterion 1 below (`grep "_default"` returns zero) plus a SQL assertion in the e2e bootstrap: `SELECT COUNT(*) FROM project WHERE slug='_default'` must return 0 after `just db_reset && just docker`.
 
 ---
 
@@ -464,7 +434,7 @@ for new_index, e in enumerate(incoming_frames):
 
 ### Persistence schema deltas
 
-**None.** The normalized Step 2 schema (per overview) already includes `scene.thumbnail_artifact_key` and the `generating` status value. If you find them missing because Step 2 shipped before normalization, add a focused migration in this PR; otherwise no schema work here.
+**None.** The normalized Step 2 schema (per overview) already includes `scene.thumbnail_artifact_key` and the `generating` status value. If local schema state drifts while implementing Step 4, reset the database to `0001_initial.py` and rebuild forward in code rather than adding migration choreography.
 
 ---
 
@@ -576,7 +546,7 @@ For `test_agent_client.py` (unit):
 
 ## Acceptance criteria
 
-1. `grep -rn "_default" layersense_controller/src/ layersense_persistence/src/` returns no matches (the shim and its row are gone after migration `0003`).
+1. `grep -rn "_default" layersense_controller/src/ layersense_persistence/src/` returns no matches (the shim and its row are gone after Step 4 cleanup).
 2. `grep -rn "localhost:8000\|http://agent" layersense_frontend/src/` returns no matches. Browser does not talk to the agent.
 3. `react-router-dom` is the only new frontend runtime dependency added beyond the existing Bun/Tailwind baseline dependencies already present in `layersense_frontend/package.json`.
 4. `uv run --all-packages pytest -m unit` and `-m integration` pass; coverage for new controller `api/*.py` ≥ 95%; `services/agent_client.py` ≥ 95%.
@@ -601,7 +571,7 @@ For `test_agent_client.py` (unit):
 15. `RenderJobSnapshot` (Python + TypeScript) carries exactly `{ render_id, scene_id, content_hash, status, version, preview_url, final_url, thumbnail_url, error_message }`. No legacy fields (`job_id`, `error`, `succeeded`). Verified by Pydantic schema + vitest type test.
 16. `Frame` rows for a scene are deleted when their `excalidraw_frame_id` disappears from `excalidraw_scene_json` (verified by integration test covering insert, reorder, and hard-delete paths).
 17. `PATCH /scenes/{id}` with duplicate `excalidraw_frame_id`s in `excalidraw_scene_json.elements` returns `HTTP 422` and rolls back the entire transaction (verified by integration test).
-18. Migration `0003_drop_default_project_shim.py` is irreversible (`downgrade()` raises) and runs cleanly against a DB with a `_default` project containing scenes + renders; companion `scripts/wipe_default_shim_blobs.py` is idempotent on a missing-blob input.
+18. Step 4 cleanup can start from a wiped local DB/artifact state without preserving `_default` data. Verified by `just db_reset && just docker` plus the anti-resurrection checks above.
 
 ---
 
@@ -612,14 +582,14 @@ For `test_agent_client.py` (unit):
 | Long Taskiq task (agent + manim preview + manim final) holds a worker for minutes | Acceptable for single-user. If it bites, split per C2b — small refactor; the state machine on Render already accommodates intermediate states. |
 | Agent failure leaves Render in `generating` forever if the task crashes mid-flight before catching the error | Wrap the task body in a top-level `try/except/finally` that sets `status="failed"` on any unhandled exception. Verified by a fault-injection test. |
 | Frame diff hard-delete loses `prompt_augmentation` if user temporarily deletes a frame in Excalidraw to redraw | **Documented v1 behavior** (locked decision). The SceneEditor surfaces a one-line tooltip warning on FrameList. Single-user; if this turns into a real workflow pain, add 30-day soft-delete on `Frame` in a follow-up. |
-| `_default` shim wipe migration `0003` cannot be safely rerun if blobs were already deleted | Companion script `scripts/wipe_default_shim_blobs.py` is idempotent — `ObjectStore.delete()` on a missing key is a no-op. Migration `downgrade()` raises explicitly. |
+| `_default` shim cleanup collides with odd local smoke-test state | Acceptable. Wipe the local DB/artifacts and recreate from `0001_initial.py`; no meaningful persisted user data needs preservation at this stage. |
 | `RenderJobSnapshot` schema break breaks long-lived browser tabs across deploy | Single-user dev; full-page reload after deploy is acceptable. Frontend version-check is out of scope. |
 | Frame diff fires on every Excalidraw `onChange` flush, generating many small DB transactions | The 800ms debounce on autosave consolidates `onChange` bursts; one `PATCH` per pause, one diff per `PATCH`. Negligible at single-user scale. |
 | Excalidraw assigns a *new* `excalidraw_frame_id` to a renamed/recreated frame, treated as delete + insert | Documented as a known edge case; behavior is hard-delete of the old row including augmentation. If observed in practice, revisit with a concrete repro. |
 | Frontend bundle growth from `react-router-dom` | ~10kb gzipped. Negligible. |
 | The frame CRUD endpoints invite confusion | Router docstrings flag them as internal. Open to suppressing them entirely on push-back. |
 | Cassette refresh churn on agent VCR tests (second time after Step 3) | One commit; called out in PR description. The agent's contract is finally stable after this step. |
-| Long single PR | Split rule: (a) `_default` wipe migration + project/scene/frame CRUD endpoints + agent client + agent contract change, (b) `/scenes/{id}/generate` orchestration task + thumbnail capture + e2e, (c) frontend revamp + `RenderJobSnapshot` cutover. Each is independently shippable; `just e2e` keeps passing throughout. **Recommendation: three PRs in order.** |
+| Long single PR | Split rule: (a) `_default` cleanup + project/scene/frame CRUD endpoints + agent client + agent contract change, (b) `/scenes/{id}/generate` orchestration task + thumbnail capture + e2e, (c) frontend revamp + `RenderJobSnapshot` cutover. Each is independently shippable; `just e2e` keeps passing throughout. **Recommendation: three PRs in order.** |
 
 ---
 

@@ -1,11 +1,11 @@
 # Multi-File Projects + Components Library (Agent Tier 2) — Implementation Plan
 
-**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Migration number is `0006` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006). This step's `projects/{project_id}/...` ObjectStore tree is the mutable working copy; it **coexists with** the existing `renders/{content_hash}/...` immutable snapshot tree (per overview "Storage model"). It does not replace it. **DQ1 RESOLVED (2026-05-22, design decision #16):** The agent stays pure-function with inline FileBundle response. No tool surface. Controller writes all files to ObjectStore. Option C preserved. Re-evaluate only if Step 9 friction log shows this is untenable.
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. This step's `projects/{project_id}/...` ObjectStore tree is the mutable working copy; it **coexists with** the existing `renders/{content_hash}/...` immutable snapshot tree (per overview "Storage model"). It does not replace it. **DQ1 RESOLVED (2026-05-22, design decision #16):** The agent stays pure-function with inline FileBundle response. No tool surface. Controller writes all files to ObjectStore. Option C preserved. Re-evaluate only if Step 9 friction log shows this is untenable.
 **Step in build order:** 7 of 9
 **Depends on:** Step 2 (`layersense_persistence`), Step 3 (`layersense_storage` + ObjectStore), Step 4 (frontend revamp + controller orchestration), Step 5 (agent refinement), Step 6 (project export)
 **Unblocks:** Step 8 (S3-compatible ObjectStore backend), Step 9 (OpenCode-style agentic runtime, speculative)
 
-**Amendment (2026-05-22):** DQ1 resolved: inline FileBundle (decision #16). Migration numbering corrected to 0006. Cache-hit ordering fixed (agent always called for /generate). __init__.py marked as materialization-only. Hash terminology unified. Per audit findings 7.1-7.5.
+**Amendment (2026-05-22):** DQ1 resolved: inline FileBundle (decision #16). Cache-hit ordering fixed (agent always called for /generate). __init__.py marked as materialization-only. Hash terminology unified. Per audit findings 7.1-7.5.
 
 ---
 
@@ -36,7 +36,7 @@ This step makes a project a real Python package. Scenes can `from components.spr
 6. **Watcher rebirth**: project-aware watcher that materializes the project locally, watches for file-system changes, syncs edits back to the ObjectStore, and triggers re-renders of affected scenes.
 7. **Manim CLI workdir**: worker materializes the full project package (all component files + target scene) into a temp directory before invoking Manim, so `from components.x import y` resolves correctly.
 8. **Frontend Components tab**: read-only file tree on the project detail page showing component files. No in-browser editing.
-9. **Backwards compatibility**: existing single-file scenes from Steps 3–6 continue to work as-is. New projects use the package shape. Migration is opt-in.
+9. **Backwards compatibility**: existing single-file scenes from Steps 3–6 continue to work as-is. New projects use the package shape. Transition is opt-in; local reset remains acceptable if state gets awkward.
 
 ### Out of scope (deferred)
 
@@ -102,7 +102,6 @@ def project_scene_key(project_id: str, scene_id: str) -> str:
 One row per component file, current-state-only. No history; the agent prompt is the history.
 
 ```sql
--- Migration: 0006_add_component_and_bundle_manifest.py
 
 CREATE TABLE component (
     id              TEXT PRIMARY KEY,           -- uuid4
@@ -128,7 +127,6 @@ CREATE INDEX ix_component_project_id ON component(project_id);
 #### 2b. `Render.bundle_manifest_json` column
 
 ```sql
--- Same migration 0006
 ALTER TABLE render ADD COLUMN bundle_manifest_json TEXT NOT NULL DEFAULT '{}';
 ```
 
@@ -149,7 +147,6 @@ This records exactly which component versions were used for a render. Allows rep
 #### 2c. `Project.python_package_name` field
 
 ```sql
--- Same migration 0006
 ALTER TABLE project ADD COLUMN python_package_name TEXT;
 ```
 
@@ -440,7 +437,6 @@ The `Component` table has one row per `(project_id, relative_path)`. Each agent 
 - `src/layersense_persistence/models.py` — add `Component` ORM model.
 - `src/layersense_persistence/repositories/components.py` — `ComponentsRepository` with `upsert`, `get`, `list_by_project`, `delete`.
 - `src/layersense_persistence/schemas.py` — add `ComponentRead`, `ComponentCreate`, `ComponentUpdate` DTOs.
-- `migrations/versions/0006_add_component_and_bundle_manifest.py` — adds `component` table, `render.bundle_manifest_json`, `project.python_package_name`.
 - `tests/unit/test_repositories_components.py`
 
 **`layersense_storage/`**
@@ -652,7 +648,7 @@ This is the largest step in the migration.
 
 | Area | LOC delta (src) | LOC delta (tests) |
 |---|---|---|
-| `layersense_persistence` (Component model + repo + migration) | ~200 | ~200 |
+| `layersense_persistence` (Component model + repo + schema/model updates) | ~200 | ~200 |
 | `layersense_storage` (key helpers) | ~50 | ~50 |
 | `layersense_controller` (packager + bundle writer + materializer + watcher + API + task extension) | ~900 | ~1000 |
 | `layersense_agent` (new schemas + prompt construction) | ~200 | ~200 |
@@ -662,7 +658,7 @@ This is the largest step in the migration.
 
 **Recommended PR split (3 PRs):**
 
-1. **Schema + storage keys + persistence** (`layersense_persistence` migration, `Component` repo, `layersense_storage` key additions). No behavior change; `just test_python` passes throughout.
+1. **Schema + storage keys + persistence** (`layersense_persistence` schema/model updates, `Component` repo, `layersense_storage` key additions). No behavior change; `just test_python` passes throughout.
 2. **Agent contract + controller bundle infrastructure** (new agent schemas, `FileBundle` response, `bundle_writer`, `project_packager`, `project_materializer`, `agent_client` update, task extension, components API). The generate flow works end-to-end with components. `just e2e` passes.
 3. **Watcher rebirth + frontend Components tab**. Opt-in via `LAYERSENSE_ENABLE_WATCHER`. Frontend shows the Components tab. `just e2e` passes.
 
@@ -736,10 +732,10 @@ This plan stores only content hashes in `bundle_manifest_json`. To recover the a
 6. The `FileBundle` response shape is backwards-compatible: if the agent returns the old `{ source_code, content_hash }` shape, the controller wraps it into a single-file bundle. This allows a gradual rollout without requiring the agent to be updated atomically with the controller.
 7. Component files are always valid Python. The controller does not validate Python syntax before writing to the ObjectStore. Syntax errors surface as Manim render failures with a descriptive log.
 8. The watcher is opt-in (`LAYERSENSE_ENABLE_WATCHER=false` by default). The default Docker stack does not mount `LAYERSENSE_PROJECT_WORKDIR` as a host volume. Users who want the watcher must opt in explicitly.
-9. Existing projects (created before Step 7) are not automatically migrated to package mode. They continue to work as single-file scenes. The "convert to multi-file" migration is a future follow-up.
+9. Existing projects are not automatically converted to package mode. They can continue to work as single-file scenes, or local state can simply be reset and recreated under the Step 7 package shape.
 10. The Components tab in the frontend is read-only. In-browser editing is explicitly out of scope for Step 7.
 11. Asset uploads (images, fonts) are deferred to Step 7.5. Manim stdlib assets are sufficient for the initial component library use case.
-12. The `bundle_manifest_json` column is added to `Render` in migration `0006`. If migration `0006` has not yet been finalized, fold all Step 7 schema changes into that single migration.
+12. The `bundle_manifest_json` column is added to `Render` in this step as part of the first-version schema evolution. No numbered migration choreography is required; reset local DB state if needed.
 13. `just lint` and `just test` are the verification gates before claiming any PR in this step is done.
 
 → Confirm DQ2–DQ5 before implementation begins. DQ1 is resolved by design decision #16: the agent stays a pure function with inline `FileBundle` response.

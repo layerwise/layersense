@@ -1,6 +1,6 @@
 # Agent Refinement (Tier 1) — Implementation Plan
 
-**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Canonical source-key form: `renders/{content_hash}/source.py`. Migration number is `0004` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006).
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Canonical source-key form: `renders/{content_hash}/source.py`.
 **Amendment (2026-05-22):** Render.refinement_prompt confirmed canonical (overview amended). Cache-hit ordering corrected: agent always called for /refine. Hash terminology unified. Response field normalized to scene_py_bytes. Per audit findings 5.1-5.3.
 **Step in build order:** 5 of 9
 **Depends on:** Step 4 (`POST /api/v1/scenes/{id}/generate`, controller-as-orchestrator, `parent_render_id` column in `Render`) merged
@@ -183,13 +183,11 @@ One new column on `Render`:
 ALTER TABLE render ADD COLUMN refinement_prompt TEXT;
 ```
 
-Migration: `0004_add_render_refinement_prompt.py`.
-
 This column is now canonical — added to overview schema (amendment 2026-05-22).
 
 `parent_render_id` already exists in the Step 2 schema (`FK Render NULL (SET NULL)`). No change needed.
 
-No other schema changes.
+No migration-heavy rollout is needed for this change. If local schema state drifts during implementation, reset the DB to `0001_initial.py` and recreate it with the updated first-version schema.
 
 ---
 
@@ -327,7 +325,6 @@ The controller's `GET /render-jobs/{render_id}` response gains two fields:
 - `layersense_controller/src/layersense_controller/main.py` — register `refine` router.
 - `layersense_controller/src/layersense_controller/services/agent_client.py` — add optional `previous_source_code`, `previous_prompt`, `refinement_prompt` params to `generate_animation`.
 - `layersense_controller/src/layersense_controller/router.py` — extend render-job response schema with `parent_render_id`, `parent_content_hash`.
-- `layersense_persistence/src/layersense_persistence/migrations/versions/0004_add_render_refinement_prompt.py` — add `render.refinement_prompt TEXT`.
 - `layersense_persistence/src/layersense_persistence/models.py` — add `refinement_prompt: str | None` to `Render`.
 - `layersense_persistence/src/layersense_persistence/schemas.py` — add `refinement_prompt` to `RenderSchema`.
 - `layersense_controller/tests/integration/test_generate_api.py` — minor: assert `parent_render_id` is null on generate renders.
@@ -429,7 +426,7 @@ Nothing deleted in this step.
 ## Acceptance criteria
 
 1. `grep -rn "POST.*refine" layersense_controller/src/` matches exactly one route definition.
-2. `grep -rn "parent_render_id" layersense_controller/src/ layersense_persistence/src/` returns matches in: `models.py`, `schemas.py`, the migration file, `refine.py` router, and the refine task. No other files.
+2. `grep -rn "parent_render_id" layersense_controller/src/ layersense_persistence/src/` returns matches in the persistence models/schemas plus the refine router/task. No unrelated files.
 3. `grep -rn "previous_source_code" layersense_agent/src/` returns matches in `animate_scene.py` and the prompt-builder module. No other agent files.
 4. `grep -rn "refineScene\|/refine" layersense_frontend/src/` returns matches in `api.ts` and `SceneEditorRoute.tsx` only.
 5. `grep -rn "localhost:8000\|http://agent" layersense_frontend/src/` returns no matches (browser still only talks to controller — unchanged from Step 4).
@@ -452,7 +449,7 @@ Nothing deleted in this step.
 |---|---|
 | `generate_and_render` and `refine_and_render` tasks share ~80% of their body, leading to duplication | Extract a shared `_run_render_pipeline(render_id, agent_payload)` internal function. Both tasks call it after assembling their respective payloads. Keeps each task thin (~30 LOC) and the shared logic tested once. |
 | Previous source blob missing from ObjectStore (e.g., storage wiped between generate and refine) | Task catches `ObjectNotFoundError` from `ObjectStore.get`, sets `Render.status = "failed"` with message "Previous render source not found in object store. Try generating from scratch.", does not update `scene.current_render_id`. Covered by a dedicated integration test. |
-| `previous_prompt` approximation (using current `scene.prompt` instead of the prompt at render time) misleads the LLM | Acceptable for Step 5. If it causes visible quality degradation, add `Render.prompt_snapshot TEXT` in a follow-up migration. Surfaced explicitly in Assumptions. |
+| `previous_prompt` approximation (using current `scene.prompt` instead of the prompt at render time) misleads the LLM | Acceptable for Step 5. If it causes visible quality degradation, extend the first-version schema in a follow-up and reset local DB state if needed. Surfaced explicitly in Assumptions. |
 | Refinement of a failed render (user clicks "Refine" before the 409 guard is tight) | The 409 guard checks `status IN ('final_ready', 'preview_ready')`. A `failed` render does not qualify. The "Refine" button is disabled in the frontend when `scene.current_render_id` is null, but the server-side guard is the authoritative check. |
 | Long-poll response shape change (`parent_render_id`, `parent_content_hash`) breaks existing frontend code | Fields are additive. Existing frontend code ignores unknown fields. The `types.ts` extension is backward compatible. |
 | Cassette churn on agent VCR tests (frames-aware prompt upgrade changes the LLM payload) | One-time cassette refresh via `just test_python_integration_refresh`. Expected; called out in PR description. |
@@ -466,7 +463,7 @@ Nothing deleted in this step.
 - Controller: ~250 LOC src + ~350 LOC tests
 - Agent: ~150 LOC delta (prompt builder upgrade + new request fields) + ~100 LOC tests
 - Frontend: ~200 LOC src + ~150 LOC tests
-- Persistence migration: ~20 LOC
+- Persistence schema/model delta: ~20 LOC
 - Docs: ~40 LOC
 
 Total: ~1260 LOC delta. Single PR is appropriate given the scope.
@@ -475,7 +472,7 @@ Total: ~1260 LOC delta. Single PR is appropriate given the scope.
 
 ## Assumptions
 
-1. **`previous_prompt` approximation is acceptable.** The controller passes `scene.prompt` (current value) as `previous_prompt` rather than storing a snapshot on the `Render` row. If the user edits the prompt between renders, the `previous_prompt` field will reflect the current prompt, not the one used for the previous render. This is a pragmatic simplification. A `Render.prompt_snapshot` column can be added later if this proves harmful. → **Pushback invited.**
+1. **`previous_prompt` approximation is acceptable.** The controller passes `scene.prompt` (current value) as `previous_prompt` rather than storing a snapshot on the `Render` row. If the user edits the prompt between renders, the `previous_prompt` field will reflect the current prompt, not the one used for the previous render. This is a pragmatic simplification. If it proves harmful, extend the first-version schema later and reset local DB state if needed. → **Pushback invited.**
 
 2. **Refinement always uses the current scene state (Excalidraw + prompt + frames).** If the user edited the canvas between renders, those edits are honored. The alternative (freezing the scene state to the previous render's snapshot) requires storing `excalidraw_scene_json` on the `Render` row, which is not in the current schema. → **Pushback invited if frozen-state refinement is preferred.**
 
@@ -491,4 +488,4 @@ Total: ~1260 LOC delta. Single PR is appropriate given the scope.
 
 8. **Single PR.** ~1260 LOC delta is manageable in one review. If the agent prompt-builder upgrade is contentious, it can be split into a separate PR (agent-only) that lands first. → **Pushback invited.**
 
-→ Correct any of these or I proceed to implementation. The most consequential open question is assumption (1): whether to store `Render.prompt_snapshot` now (adds one column to the migration, eliminates the approximation) or defer it. If you want the approximation eliminated from day one, say so and I'll add the column to the schema delta.
+→ Correct any of these or I proceed to implementation. The most consequential open question is assumption (1): whether to store `Render.prompt_snapshot` now (adds one column to the schema, eliminates the approximation) or defer it.

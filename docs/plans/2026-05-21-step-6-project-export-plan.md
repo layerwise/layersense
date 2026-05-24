@@ -1,6 +1,6 @@
 # Project Export — Implementation Plan
 
-**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Migration number is `0005` per the normalized sequence (Step 5 = 0004, Step 6 = 0005, Step 7 = 0006). Canonical source-key form: `renders/{content_hash}/source.py`.
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md`. Canonical source-key form: `renders/{content_hash}/source.py`.
 **Amendment (2026-05-22):** Endpoint changed to GET. Scope narrowed to source-only (no renders). Streaming removed. Per design decision #19 and audit findings 6.1-6.2.
 **Step in build order:** 6 of 9
 **Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`layersense_storage` + `ObjectStore`) merged, Step 4 (Project/Scene CRUD + controller orchestration) merged
@@ -34,7 +34,7 @@ This step is cheap relative to its value: the data is already in the DB and the 
    - `requirements.txt` — pins the Manim version used at render time (see schema delta below).
    - `manifest.json` — structured metadata: project id/name/slug, per-scene entries (scene id, name, order_index, render id, content_hash, manim_version, source key), `skipped_scenes` array, `generated_at` ISO timestamp.
 3. Export is source-only: .py scene files + manifest.json + manim.cfg. No mp4 renders included (design decision #19). Streaming zip is not needed — source-only exports are small. The GET method enables <a href=...> download links in the frontend without JavaScript fetch/blob handling.
-4. Small schema migration: add `Render.manim_version TEXT NULL` column. The worker records the Manim version string at render time. Used by `requirements.txt` generation.
+4. Small schema addition: add `Render.manim_version TEXT NULL` column. The worker records the Manim version string at render time. Used by `requirements.txt` generation.
 5. Frontend: "Export" button on the project detail page header. Triggers a direct browser download via `<a href="/api/v1/projects/{id}/export" download>`.
 
 ### Out of scope
@@ -214,7 +214,7 @@ Build the zip entirely in memory using `zipfile.ZipFile` with `io.BytesIO`. Sour
 
 ### `Render.manim_version` schema delta
 
-Add `manim_version TEXT NULL` to the `Render` table. Migration `0005_add_render_manim_version.py`.
+Add `manim_version TEXT NULL` to the `Render` table.
 
 The worker records the version at render time:
 
@@ -225,7 +225,7 @@ render.manim_version = manim.__version__
 
 This is a one-line addition to the worker's render task, after the Manim import is already present.
 
-Renders predating this migration have `manim_version = NULL`. The export falls back to `manim>=0.18` in `requirements.txt` with a comment.
+If local renders predate this schema shape, `manim_version` may be `NULL`. The export falls back to `manim>=0.18` in `requirements.txt` with a comment. Given first-version ergonomics, resetting local DB state is also acceptable.
 
 ### Generation flow (step by step)
 
@@ -271,7 +271,6 @@ This is a plain anchor tag — no JavaScript, no spinner, no state. The browser 
 
 ### `layersense_persistence`
 
-- `migrations/versions/0005_add_render_manim_version.py` — adds `render.manim_version TEXT NULL`.
 - `layersense_persistence/src/layersense_persistence/repositories/renders.py` — add `latest_successful(scene_id: str) -> Render | None` query method.
 - `layersense_persistence/src/layersense_persistence/schemas.py` — add `manim_version: str | None` to `RenderSchema`.
 
@@ -431,7 +430,7 @@ The "exported zip can be rendered with vanilla Manim" criterion is verified manu
 
 ## Estimated shape
 
-- `layersense_persistence` delta: ~60 LOC (migration + repository method + schema field).
+- `layersense_persistence` delta: ~60 LOC (schema/model update + repository method + schema field).
 - `layersense_controller` new src: ~350 LOC (`export.py`, `export_service.py`, `zip_builder.py`, `manim_cfg.py`).
 - `layersense_controller` test: ~400 LOC (`test_export_service.py`, `test_export_api.py`).
 - `layersense_controller` modified src: ~30 LOC (register router, record `manim_version` in worker).
@@ -454,9 +453,9 @@ Surface these explicitly — push back before implementation begins.
 
 4. **Scenes with no successful render are skipped (not stubbed).** An empty stub `.py` would be confusing. The manifest makes the omission explicit. → *Push back if you want a stub file instead.*
 
-5. **`Render.manim_version` is added in this step.** This is a small schema delta. Existing renders will have `NULL`; the export falls back gracefully. → *Push back if you want to defer this column to a later step.*
+5. **`Render.manim_version` is added in this step.** This is a small schema delta. Existing local renders may have `NULL`; the export falls back gracefully, and resetting local DB state remains acceptable. → *Push back if you want to defer this column to a later step.*
 
-6. **Scene slug is derived on-the-fly from `scene.name`; no `scene.slug` column is added.** The derivation is deterministic and collision-safe. Adding a stored slug would require a migration and a uniqueness constraint that complicates scene renaming. → *Push back if you want a stored slug.*
+6. **Scene slug is derived on-the-fly from `scene.name`; no `scene.slug` column is added.** The derivation is deterministic and collision-safe. Adding a stored slug would add unnecessary schema/uniqueness complexity for first-version ergonomics. → *Push back if you want a stored slug.*
 
 7. **File naming convention: `scenes/{order_index:03d}_{scene_slug}.py`.** The `order_index` prefix ensures natural sort order and uniqueness. The slug provides human readability. → *Push back if you prefer `scenes/{scene_slug}.py` (no prefix) or a different convention.*
 

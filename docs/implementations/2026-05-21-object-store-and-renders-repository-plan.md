@@ -161,7 +161,7 @@ Step 2's schema, as normalized against the overview, already includes:
 - `scene.thumbnail_artifact_key` (set by worker after preview; consumed by Step 4)
 - `render.status` enum includes `generating | queued | preview_ready | final_ready | failed`
 
-**No new migrations are needed in this step.** All required columns are in `0001_initial` per the normalized Step 2 plan. If you find a column missing because the Step 2 PR shipped before the normalization landed, add it as a focused `0002_*.py` migration in this PR rather than back-editing `0001`.
+**No new migrations are needed in this step.** All required columns are in `0001_initial` per the normalized Step 2 plan.
 
 ### Implicit project/scene creation
 
@@ -179,11 +179,7 @@ This is deliberately ugly. It is a 30-line shim that lets Step 3 ship without dr
 
 The shim is born in PR 3b and is **wiped, not migrated, at the Step 4 boundary**.
 
-- **Death plan:** Step 4's first commit is a focused migration `0003_drop_default_project_shim.py` that:
-  - Deletes the `project WHERE slug='_default'` row.
-  - Relies on `ON DELETE CASCADE` (declared in Step 2's `0001_initial`) to remove all dependent `scene`, `frame`, and `render` rows.
-  - Calls `ObjectStore.list_prefix("renders/")` and `delete()` for every key produced by `_default`-attributed renders. The Step 4 PR adds a `RendersRepository.list_keys_for_project(project_id)` helper specifically for this wipe.
-  - Logs a one-line summary: "wiped N renders / M blobs from _default shim".
+- **Death plan:** Hard database wiping.
 - **No data preservation.** The `_default` shim only ever holds throwaway content from the Step 3 transition window (you, single-user, dev stage, between PR 3b and Step 4 landing). Any render you actually care about is re-generated against a real Project in Step 4's CRUD-driven flow.
 - **Anti-leak guard in Step 4:** acceptance criteria for Step 4 include `SELECT COUNT(*) FROM project WHERE slug='_default'` returning 0 after `just db_reset && just docker && (Step 4 boot)`. Any creation path that would resurrect the shim is removed.
 - **PR 3b TODO marker:** the shim's call site in `router.py` is decorated with `# TODO(step-4): remove. See docs/plans/2026-05-21-frontend-revamp-and-project-scene-crud-plan.md §"_default shim wipe".` so grep finds it on Step 4 kickoff.
@@ -459,7 +455,6 @@ The `cache_index` Redis lock from Step 1 is **deleted** in this PR — there is 
 | Manim CLI requires a real on-disk path; per-render temp workdir adds a new failure surface | The `materialize_scene_source_for_manim` context manager owns workdir lifecycle with `tempfile.TemporaryDirectory`. Existing render-runtime test coverage catches mishandling. |
 | Two `Render` rows pointing at the same blob keys; deletion of one row would orphan the other | Phrase deletion at the `RendersRepository` level as "delete row only", never "delete blob". Object store cleanup is explicit GC, not row-driven. Out of scope here; not implemented in PR 3b. |
 | Taskiq worker container does not see the same object-store volume as the API container | Compose mounts `./layersense_artifacts/storage/` on `controller` and `controller-worker`. The agent has no storage mount (by design — agent has no storage awareness). Verified by acceptance criterion 27 + the e2e test. |
-| `_default` project shim leaks into Step 4's design | Wipe migration `0003_drop_default_project_shim.py` lands as Step 4's first commit per `_default shim cleanup` section. PR 3b leaves a `# TODO(step-4)` grep anchor at the shim's call site. |
 | `RenewableLock` heartbeat fires too slowly under scheduler pressure; lock TTL drains | Defaults give 3x margin (`heartbeat_interval_ms=10_000` vs `ttl_ms=30_000`). `RenewableLock.__aexit__` is CAS-safe — a TTL-drained lock cannot be released by a foreign holder. Worst case: two workers double-render identical content into the same content-addressed key. No corruption. |
 | Cassette-backed agent tests churn because response shape changed | One-time cassette refresh via `just test_python_integration_refresh`. Expected; called out in PR 3b description. |
 
