@@ -1,10 +1,10 @@
-FROM node:25-bookworm-slim AS deps
+FROM oven/bun:1.3.5-debian AS deps
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
+COPY package.json bun.lock ./
 
-RUN npm ci
+RUN bun install --frozen-lockfile
 
 FROM deps AS dev
 
@@ -12,7 +12,7 @@ COPY . .
 
 EXPOSE 3000
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["bun", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"]
 
 FROM deps AS build
 
@@ -23,8 +23,10 @@ ENV VITE_CONTROLLER_BASE=${VITE_CONTROLLER_BASE}
 
 COPY . .
 
-RUN npm run build
+RUN bun run build
 
 FROM nginx:alpine AS prod
+
+EXPOSE 80
 
 COPY --from=build /app/dist /usr/share/nginx/html

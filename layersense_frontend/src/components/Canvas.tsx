@@ -40,7 +40,7 @@ export const Canvas = forwardRef<CanvasHandle>(function Canvas(_, ref) {
   )
 
   return (
-    <div className="canvas-host" data-testid="canvas-host">
+    <div className="absolute inset-0 [&_.excalidraw]:h-full [&_.excalidraw]:w-full" data-testid="canvas-host">
       <Excalidraw excalidrawAPI={setApi} />
     </div>
   )

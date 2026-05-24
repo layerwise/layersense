@@ -12,32 +12,28 @@ type UseRenderJobParams = {
   initialJob: RenderJobSnapshot | null
 }
 
+type TrackedJob = { jobId: string; snapshot: RenderJobSnapshot }
+
 export const useRenderJob = ({ jobId, initialJob }: UseRenderJobParams): RenderJobSnapshot | null => {
-  const [job, setJob] = useState<RenderJobSnapshot | null>(initialJob)
+  const [trackedJob, setTrackedJob] = useState<TrackedJob | null>(null)
 
   const initialVersion = initialJob?.version
   const initialStatus = initialJob?.status
+  const polledJob = trackedJob?.jobId === jobId ? trackedJob.snapshot : null
 
   useEffect(() => {
-    if (!jobId || !initialJob) return
-
-    setJob((currentJob) => {
-      if (currentJob?.job_id === initialJob.job_id && currentJob.version >= initialJob.version) {
-        return currentJob
-      }
-      return initialJob
-    })
+    if (!jobId || initialVersion === undefined || initialStatus === undefined) return
 
     let cancelled = false
 
     void (async () => {
-      let current = initialJob
+      let current = { status: initialStatus, version: initialVersion }
       while (!cancelled && current.status !== 'succeeded' && current.status !== 'failed') {
         try {
           const next = await getRenderJob(jobId, { afterVersion: current.version, waitSeconds: 20 })
           if (cancelled) return
           current = next
-          setJob(next)
+          setTrackedJob({ jobId, snapshot: next })
         } catch {
           if (cancelled) return
           await sleep(POLL_RETRY_DELAY_MS)
@@ -48,7 +44,7 @@ export const useRenderJob = ({ jobId, initialJob }: UseRenderJobParams): RenderJ
     return () => {
       cancelled = true
     }
-  }, [jobId, initialVersion, initialStatus])
+  }, [jobId, initialStatus, initialVersion])
 
-  return job
+  return polledJob
 }

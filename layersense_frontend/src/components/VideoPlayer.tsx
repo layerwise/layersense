@@ -28,13 +28,21 @@ export const VideoPlayer = ({ previewUrl, finalUrl, error, status }: VideoPlayer
   const src = finalUrl ?? previewUrl
 
   return (
-    <section className="video-player" aria-live="polite">
-      <p className="video-status">{statusLabel[status]}</p>
+    <section className="flex flex-col flex-1 gap-2 font-sans min-h-0" aria-live="polite">
+      <p className="m-0 mb-2 shrink-0 text-[#594e3f]">{statusLabel[status]}</p>
 
-      {error ? <p className="video-error">{error}</p> : null}
+      {error ? <p className="m-0 mb-[0.6rem] shrink-0 font-semibold text-[#b6422e]">{error}</p> : null}
 
       {src ? (
-        <video data-testid="render-video" src={src} controls autoPlay={false} playsInline preload="metadata" />
+        <video
+          className="w-full flex-1 object-contain rounded-lg bg-black min-h-0"
+          data-testid="render-video"
+          src={src}
+          controls
+          autoPlay={false}
+          playsInline
+          preload="metadata"
+        />
       ) : (
         <p>No render yet</p>
       )}
