@@ -1,8 +1,8 @@
 # Frontend Revamp + Project/Scene CRUD + Controller Orchestration — Implementation Plan
 
-**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (overview is canonical for schema, key layout, and Option C boundaries). Amended 2026-05-21 to: (a) make `_default` shim wipe an explicit first-commit migration; (b) declare a hard-cutover schema break for `RenderJobSnapshot` (no back-compat); (c) specify the frame-diff algorithm as hard-delete-on-disappear with explicit collision rule; (d) reconcile real frontend prop shapes (`Canvas` gains an `onChange` callback; `VideoPlayer` keeps URL-shaped props; status vocabulary unifies to the backend `Render.status` enum across the wire); (e) clarify that `isSaving`-gated Generate eliminates the autosave race by construction, not by snapshotting. **Prerequisite note (2026-05-23):** before executing the frontend revamp slices in this plan, complete `docs/plans/2026-05-23-frontend-bun-tailwind-migration-plan.md` so the revamp lands on the Bun/Tailwind baseline instead of extending the Bun + app-CSS stack.
+**Status:** Proposed. Normalized 2026-05-21 against `docs/plans/2026-05-21-architecture-expansion-overview.md` (overview is canonical for schema, key layout, and Option C boundaries). Amended 2026-05-21 to: (a) make `_default` shim wipe an explicit first-commit migration; (b) declare a hard-cutover schema break for `RenderJobSnapshot` (no back-compat); (c) specify the frame-diff algorithm as hard-delete-on-disappear with explicit collision rule; (d) reconcile target frontend prop shapes (`Canvas` gains an `onChange` callback; `VideoPlayer` keeps URL-shaped props and a local `idle` pre-render state while the wire format unifies to the backend `Render.status` enum); (e) clarify that `isSaving`-gated Generate eliminates the autosave race by construction, not by snapshotting. **Post-migration note (2026-05-24):** `docs/plans/2026-05-23-frontend-bun-tailwind-migration-plan.md` is already implemented. Step 4 now assumes the Bun/Tailwind baseline is present and should not reintroduce npm-era tooling work or a second styling migration.
 **Step in build order:** 4 of 9
-**Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`ObjectStore` + `cache.py` deletion + `_default` shim) merged, `docs/plans/2026-05-23-frontend-bun-tailwind-migration-plan.md` executed first for frontend tooling/styling baseline
+**Depends on:** Step 2 (`layersense_persistence`) merged, Step 3 (`ObjectStore` + `cache.py` deletion + `_default` shim) merged
 **Unblocks:** Step 5 (agent refinement), Step 6 (project export)
 
 ---
@@ -19,6 +19,15 @@ This is the first user-visible payoff and the architectural keystone. After this
 - Frames are minimally wired: schema and CRUD exist, the agent receives the structured frame array, the UI displays a frame list with `prompt_augmentation` per frame. Drag-to-reorder UX is deferred.
 
 This step does **not** change the agent's generation logic, the object store, or the rendering engine internals. It introduces project/scene CRUD on the controller, moves the agent call server-side, and rebuilds the frontend on top of the new API.
+
+**Current frontend baseline at the start of Step 4 (post Bun/Tailwind migration):**
+
+- `layersense_frontend` already uses Bun (`packageManager: bun@1.3.5`) and Tailwind v4 via `@tailwindcss/vite`.
+- `src/index.css` is already the Tailwind/global entrypoint.
+- `src/App.tsx` is still the existing single-page generate/render shell with direct browser→agent generation followed by browser→controller `/render` queueing.
+- `src/App.css` is already gone; the current shell is styled with Tailwind utilities in React components.
+
+Step 4 should treat that as the starting point: extract and repurpose the current Tailwind scene editor shell into routed CRUD-backed views rather than introducing another styling system or replaying the frontend tooling migration.
 
 ---
 
@@ -249,9 +258,12 @@ POST http://agent:8000/api/v1/animation
 
 ### Frontend architecture
 
+This section describes the **target** frontend layout after Step 4. The current pre-Step-4 app is still the single-page Tailwind shell in `App.tsx`.
+
 ```
 layersense_frontend/src/
-  App.tsx                       # router shell only
+  App.tsx                       # becomes the router shell during Step 4;
+                                # current single-page editor shell moves into SceneEditorRoute
   routes/
     ProjectListRoute.tsx
     ProjectDetailRoute.tsx      # scene list / storyboard view
@@ -264,8 +276,9 @@ layersense_frontend/src/
                                 # getSceneSnapshot() handle for the Generate click.
     VideoPlayer.tsx             # existing URL-shaped props preserved
                                 # ({ previewUrl, finalUrl, errorMessage, status }) +
-                                # adds `thumbnailUrl`. status type changes from the
-                                # UX-shaped enum to the backend RenderJobSnapshot['status'].
+                                # adds `thumbnailUrl`. status type becomes
+                                # RenderJobSnapshot['status'] | 'idle' so the
+                                # pre-first-render state remains representable locally.
     FrameList.tsx               # new; right-rail panel; warns on deletion
     SceneCard.tsx               # new; thumbnail + name in project detail
     ProjectCard.tsx             # new; tile in project list
@@ -285,7 +298,7 @@ layersense_frontend/src/
 
 **Deliberately small dep additions:**
 
-- `react-router-dom` (only new runtime dep).
+- `react-router-dom` (only new frontend runtime dep beyond the existing Bun/Tailwind baseline deps).
 - No data-fetching library, no state management library, no UI component library.
 
 **Canvas API change (additive, ref-preserving):**
@@ -304,6 +317,7 @@ export const Canvas = forwardRef<CanvasHandle, CanvasProps>(...)
 ```
 
 - `initialScene` lets SceneEditorRoute hydrate the canvas from `GET /scenes/{id}`.
+- `initialScene` is not mount-only in practice: when SceneEditorRoute loads or switches to a different `scene_id`, Canvas applies the loaded snapshot exactly once for that scene hydration boundary and does not clobber local dirty edits afterward.
 - `onChange` is the autosave entry point; `useDebouncedAutosave` consumes its snapshots.
 - The existing imperative `getSceneSnapshot()` handle stays — the Generate button uses it to capture the exact moment-of-click state (belt and braces with `isSaving`-gated Generate).
 - Existing Canvas tests are updated to cover both the imperative handle and the new callback.
@@ -372,9 +386,10 @@ type RenderJobSnapshot = {
 
 **Frontend rename impact** (all in `layersense_frontend/src/`):
 
-- `types.ts` — replace `RenderJobSnapshot` with the new shape; the `VideoPlayerStatus` UX type is **deleted**; `VideoPlayer` props use the backend status directly.
+- `types.ts` — replace `RenderJobSnapshot` with the new shape; any exported `VideoPlayerStatus` UX type is deleted; `VideoPlayer` uses `RenderJobSnapshot['status'] | 'idle'` so the local pre-first-render state stays explicit.
 - `hooks/useRenderJob.ts` — terminal-state check changes from `status === 'succeeded' | 'failed'` to `status === 'final_ready' | 'failed'`. The `version`-based long-poll API contract on the controller side is preserved (`afterVersion`, `waitSeconds`).
-- `components/VideoPlayer.tsx` — props become `{ previewUrl, finalUrl, thumbnailUrl, errorMessage, status: RenderJobSnapshot['status'] }`. The `statusLabel` map is rewritten against the new enum:
+- `components/VideoPlayer.tsx` — props become `{ previewUrl, finalUrl, thumbnailUrl, errorMessage, status: RenderJobSnapshot['status'] | 'idle' }`. The `statusLabel` map is rewritten against the new enum plus the local idle state:
+  - `idle` → "Ready to generate"
   - `generating` → "Generating scene from prompt..."
   - `queued` → "Queueing render..."
   - `preview_ready` → "Preview ready. Waiting for final render..."
@@ -489,7 +504,7 @@ for new_index, e in enumerate(incoming_frames):
 
 ### Modified (frontend)
 
-- `src/App.tsx` — replace single-page layout with `<BrowserRouter>` + route definitions.
+- `src/App.tsx` — replace the current single-page Tailwind layout with `<BrowserRouter>` + route definitions, moving the existing editor shell into `SceneEditorRoute` rather than redesigning it from scratch.
 - `src/api.ts` — add project/scene/frame/generate endpoints. **Remove the `postAnimation` helper that called the agent directly.**
 - `src/types.ts` — add `Project`, `Scene`, `Frame` types matching the controller's Pydantic schemas.
 - `src/hooks/useRenderJob.ts` — handle the new `generating` and `failed` states.
@@ -563,28 +578,30 @@ For `test_agent_client.py` (unit):
 
 1. `grep -rn "_default" layersense_controller/src/ layersense_persistence/src/` returns no matches (the shim and its row are gone after migration `0003`).
 2. `grep -rn "localhost:8000\|http://agent" layersense_frontend/src/` returns no matches. Browser does not talk to the agent.
-3. `react-router-dom` is the only new runtime dependency in `layersense_frontend/package.json`.
+3. `react-router-dom` is the only new frontend runtime dependency added beyond the existing Bun/Tailwind baseline dependencies already present in `layersense_frontend/package.json`.
 4. `uv run --all-packages pytest -m unit` and `-m integration` pass; coverage for new controller `api/*.py` ≥ 95%; `services/agent_client.py` ≥ 95%.
 5. `bun run --cwd layersense_frontend test` (vitest) passes; new hooks/components ≥ 90% covered; updated `Canvas.test.tsx` covers the new `onChange` callback and `initialScene` hydration.
 6. `just e2e` passes against the local Docker stack with the rewritten e2e test.
 7. `just test-e2e` passes.
-8. `just lint` passes (Python + ESLint + tsc).
-9. After `just db_reset && just docker` from a clean state:
+8. `just lint` passes (repo Python/Black/compose checks), and `bun run --cwd layersense_frontend lint` passes.
+9. `bun run --cwd layersense_frontend build` passes.
+10. After `just db_reset && just docker` from a clean state:
    - `SELECT COUNT(*) FROM project WHERE slug='_default'` returns 0 (anti-resurrection guard).
    - `http://localhost:3000/` shows an empty project list with "New Project".
+   - Refreshing `http://localhost:3000/projects/:projectId` and `http://localhost:3000/projects/:projectId/scenes/:sceneId` serves the app shell and re-hydrates correctly (deep-link routing works in dev/container flows).
    - Creating a project, then a scene, persists across page reload.
    - Editing Excalidraw + prompt autosaves within ~1s of typing pause.
    - Clicking Generate is disabled while `isSaving` is true; verified by a vitest case + an e2e probe.
    - Clicking Generate produces a render whose preview/final play.
    - Closing and reopening the tab restores the scene with its last-rendered video and thumbnail.
-10. README accurately describes the controller-as-orchestrator architecture.
-11. The agent's `POST /api/v1/animation` request schema is `{ prompt, excalidraw_scene_json, frames }` and response is `{ source_code, content_hash }`. Verified by AST/grep on Pydantic models.
-12. `POST /render` still exists (per C3a) but no frontend code references it. Verified by grep on `layersense_frontend/src/`.
-13. The agent does not import `layersense_persistence` or `layersense_storage`. Verified by grep.
-14. `RenderJobSnapshot` (Python + TypeScript) carries exactly `{ render_id, scene_id, content_hash, status, version, preview_url, final_url, thumbnail_url, error_message }`. No legacy fields (`job_id`, `error`, `succeeded`). Verified by Pydantic schema + vitest type test.
-15. `Frame` rows for a scene are deleted when their `excalidraw_frame_id` disappears from `excalidraw_scene_json` (verified by integration test covering insert, reorder, and hard-delete paths).
-16. `PATCH /scenes/{id}` with duplicate `excalidraw_frame_id`s in `excalidraw_scene_json.elements` returns `HTTP 422` and rolls back the entire transaction (verified by integration test).
-17. Migration `0003_drop_default_project_shim.py` is irreversible (`downgrade()` raises) and runs cleanly against a DB with a `_default` project containing scenes + renders; companion `scripts/wipe_default_shim_blobs.py` is idempotent on a missing-blob input.
+11. README accurately describes the controller-as-orchestrator architecture.
+12. The agent's `POST /api/v1/animation` request schema is `{ prompt, excalidraw_scene_json, frames }` and response is `{ source_code, content_hash }`. Verified by AST/grep on Pydantic models.
+13. `POST /render` still exists (per C3a), but frontend code has no direct agent-generation or `/render` queueing path left. Verified by grep on `layersense_frontend/src/` for `AGENT_BASE`, `VITE_AGENT_BASE`, `createAnimation`, `/api/v1/animation`, and `/render`.
+14. The agent does not import `layersense_persistence` or `layersense_storage`. Verified by grep.
+15. `RenderJobSnapshot` (Python + TypeScript) carries exactly `{ render_id, scene_id, content_hash, status, version, preview_url, final_url, thumbnail_url, error_message }`. No legacy fields (`job_id`, `error`, `succeeded`). Verified by Pydantic schema + vitest type test.
+16. `Frame` rows for a scene are deleted when their `excalidraw_frame_id` disappears from `excalidraw_scene_json` (verified by integration test covering insert, reorder, and hard-delete paths).
+17. `PATCH /scenes/{id}` with duplicate `excalidraw_frame_id`s in `excalidraw_scene_json.elements` returns `HTTP 422` and rolls back the entire transaction (verified by integration test).
+18. Migration `0003_drop_default_project_shim.py` is irreversible (`downgrade()` raises) and runs cleanly against a DB with a `_default` project containing scenes + renders; companion `scripts/wipe_default_shim_blobs.py` is idempotent on a missing-blob input.
 
 ---
 
@@ -631,7 +648,7 @@ Total: ~3800 LOC delta. Three-PR split recommended.
 10. `isSaving`-gated Generate is a sufficient race-prevention mechanism. No `Render`-row scene-state snapshot fields are introduced.
 11. Frame diff uses hard-delete on disappearance, no rescue, no archive. SceneEditor surfaces a one-line warning tooltip.
 12. `RenderJobSnapshot` hard cutover with no dual-shape support. Single-user dev; full-page reload after deploy is the migration path.
-13. Status vocabulary unifies to the backend `Render.status` enum across the wire. Frontend's UX-shaped `VideoPlayerStatus` enum is deleted; `VideoPlayer` consumes the backend enum directly and owns its own label mapping.
+13. Status vocabulary unifies to the backend `Render.status` enum across the wire. Any exported frontend `VideoPlayerStatus` enum is deleted; `VideoPlayer` consumes `RenderJobSnapshot['status'] | 'idle'` and owns its own label mapping.
 14. `Canvas` keeps its imperative `forwardRef<CanvasHandle>` shape; new `initialScene` + `onChange` props are additive. Generate uses the imperative handle; autosave uses `onChange`.
 
 **Amendment (2026-05-22):** Cache-hit ordering corrected: agent always called for /generate; cache hit is post-agent. Hash terminology unified to single content_hash. Per audit findings 4.1, 4.2.
