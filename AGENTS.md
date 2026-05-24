@@ -16,7 +16,7 @@ Your operational philosophy: You are the hands; the human is the architect. Move
 ### Repo Shape
 
 - Python workspace members are only `layersense_agent` and `layersense_controller` (`[tool.uv.workspace]` in root `pyproject.toml`).
-- `layersense_frontend` is a separate Vite/React app managed with `npm`.
+- `layersense_frontend` is a separate Vite/React app managed with `bun`.
 - `layersense_scenes` is not part of the uv workspace and is excluded from root Ruff/Black config.
 - Real service entrypoints:
   - agent: `layersense_agent/src/layersense_agent/main.py`
@@ -54,7 +54,7 @@ When running tests, always use at least `uv run pytest` but prefer `uv run --all
 
 ### Testing Quirks
 
-- `just test` runs Python test and vitest.
+- `just test` runs Python test and vitest (via `bun`).
 - `just test_python` runs both Python `unit` and `integration` suites.
 - Python pytest markers are `unit`, `integration`, `e2e`, and `ai` (root `pyproject.toml`).
 - `just e2e` expects an already-running stack on localhost ports `3000`, `8000`, and `8001`.

@@ -44,11 +44,11 @@ export LAYERSENSE_E2E_REPO_ROOT="${workspace_root}"
 log_pwd "before uv sync"
 uv sync --all-packages
 log_pwd "after uv sync"
-npm --prefix layersense_frontend install
-log_pwd "after npm install"
+bun install --cwd layersense_frontend --frozen-lockfile
+log_pwd "after bun install"
 uv run --all-packages pytest -m "not e2e"
 log_pwd "after python tests"
-npm --prefix layersense_frontend test
+bun run --cwd layersense_frontend test
 log_pwd "after frontend tests"
 uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e
 log_pwd "after http e2e"

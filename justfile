@@ -34,8 +34,8 @@ setup:
 
 # Start frontend dev server
 frontend-dev:
-    npm --prefix layersense_frontend install
-    npm --prefix layersense_frontend run dev -- --host 0.0.0.0 --port 3000
+    bun install --cwd layersense_frontend --frozen-lockfile
+    bun run --cwd layersense_frontend dev -- --host 0.0.0.0 --port 3000
 
 docker:
     docker compose up --build
@@ -141,7 +141,7 @@ db_reset:
 # Run all tests (Python + frontend)
 test:
     just test_python
-    npm --prefix layersense_frontend test
+    bun run --cwd layersense_frontend test
 
 e2e:
     uv run --all-packages pytest tests/e2e/test_dev_stack_e2e.py -m e2e
@@ -193,8 +193,8 @@ build:
 
 # Build frontend production bundle
 frontend-build:
-    npm --prefix layersense_frontend install
-    npm --prefix layersense_frontend run build
+    bun install --cwd layersense_frontend --frozen-lockfile
+    bun run --cwd layersense_frontend build
 
 # Install locally (editable)
 

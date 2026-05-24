@@ -5,8 +5,8 @@ layersense_scenes/generated_scenes/
 # ignore worktrees
 .worktrees
 
-# codeium
-.codeiumignore
+# MCP stuff
+.playwright-*
 
 # environment variables and secrets
 .env
