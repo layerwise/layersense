@@ -101,7 +101,7 @@ Always create or update a dated report in `docs/` capturing anything left unreso
 
 Filename pattern:
 
-- `docs/YYYY-MM-DD-docs-hygiene-followups.md`
+- `docs/followups/YYYY-MM-DD-docs-hygiene-followups.md`
 
 The report must include:
 
